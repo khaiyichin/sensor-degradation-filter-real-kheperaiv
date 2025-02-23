@@ -1,0 +1,20 @@
+# THIS HAS TO BE RUN IN THE PROJECT'S ROOT FOLDER FOR THE DOCKER BUILD CONTEXT TO INCLUDE SRC/
+
+FROM nestlab/kheperaiv
+ENV LAST_MODIFIED="2025-02-23:00.43"
+
+# Set the working directory
+WORKDIR /work
+
+# Compile the BayesCPFDiffusion controller
+COPY src ./sensor-degradation-filter-real-kheperaiv/src
+
+# RUN cd sensor-degradation-filter-real-kheperaiv && \
+#     mkdir build_kheperaiv \
+#     cd build_kheperaiv && \
+#     cmake -DARGOS_BUILD_FOR=khiv -DCMAKE_TOOLCHAIN_FILE=../src/cmake/TargetKheperaIV.cmake -DCMAKE_INSTALL_PREFIX=$ARGOS3KHIV -DKHEPERAIV_LIBS=$ARGOS3KHIV ../src && \
+#     make install
+
+# # Cleanup
+# RUN rm -rf /work/* && \
+#   apt-get autoremove
