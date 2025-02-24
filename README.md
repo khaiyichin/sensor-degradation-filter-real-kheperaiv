@@ -22,4 +22,7 @@ Then build the controller
 ### dev notes
 what changed:
 - std::accumulate for std::reduce (only supported in c++17)
+- CCI_RangeAndBearingSensor::TReadings replaced with std::vector<CCI_KheperaIVWiFiSensor::SMessage> in the controller
 - convert double to float
+- removed leds (save battery)
+- create a new CRandom::CRNG category (because the simulator doesn't create it for us this time)

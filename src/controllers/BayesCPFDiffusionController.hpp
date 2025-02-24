@@ -9,11 +9,11 @@
 
 #include <argos3/core/control_interface/ci_controller.h>
 #include <argos3/plugins/robots/generic/control_interface/ci_differential_steering_actuator.h>
-#include <argos3/plugins/robots/generic/control_interface/ci_range_and_bearing_actuator.h>
+#include <argos3/plugins/robots/generic/control_interface/ci_positioning_sensor.h>
+// #include <argos3/plugins/robots/generic/control_interface/ci_range_and_bearing_actuator.h>
 // #include <argos3/plugins/robots/generic/control_interface/ci_range_and_bearing_sensor.h>
-// #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_actuator.h>
-// #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_sensor.h>
-#include <argos3/plugins/robots/generic/control_interface/ci_leds_actuator.h>
+#include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_actuator.h>
+#include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_ground_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_proximity_sensor.h>
 #include <argos3/core/utility/math/rng.h>
@@ -88,7 +88,7 @@ public:
     struct CommsParams
     {
         UInt32 CommsPeriodTicks = 0;
-        size_t RABDataSize = 0;
+        Real SingleHopRadius = 0.0;
     };
 
 public:
@@ -132,8 +132,6 @@ public:
         RNG_ptr_->Reset();
     }
 
-    void SetLEDs(const CColor &color);
-
     void ActivateDegradationFilter() { sensor_degradation_filter_ptr_->GetParamsPtr()->RunDegradationFilter = true; }
 
     void DeactivateDegradationFilter() { sensor_degradation_filter_ptr_->GetParamsPtr()->RunDegradationFilter = false; }
@@ -147,20 +145,25 @@ private:
 
     void EvolveSensorDegradation();
 
+    void GetSelfPosition();
+
+    std::vector<CollectivePerception::EstConfPair> GetNeighborMessages();
+
 protected:
     /* Pointer to the range and bearing actuator */
-    CCI_RangeAndBearingActuator *ci_rab_actuator_ptr_;
+    // CCI_RangeAndBearingActuator *ci_rab_actuator_ptr_;
 
     /* Pointer to the range and bearing sensor */
     // CCI_RangeAndBearingSensor *ci_rab_sensor_ptr_;
 
+    /* Pointer to the positioning sensor */
+    CCI_PositioningSensor *ci_positioning_sensor_ptr_;
 
     /* Pointer to the WiFi sensor */
-    // CCI_KheperaIVWiFiSensor *ci_wifi_sensor_ptr_;
-
+    CCI_KheperaIVWiFiSensor *ci_wifi_sensor_ptr_;
 
     /* Pointer to the WiFi actuator */
-    // CCI_KheperaIVWiFiActuator *ci_wifi_actuator_ptr_;
+    CCI_KheperaIVWiFiActuator *ci_wifi_actuator_ptr_;
 
     /* Pointer to the differential steering actuator */
     CCI_DifferentialSteeringActuator *ci_wheels_ptr_;
@@ -170,9 +173,6 @@ protected:
 
     /* Pointer to the proximity sensor */
     CCI_KheperaIVProximitySensor *ci_proximity_ptr_;
-
-    /* Pointer to the LEDs */
-    CCI_LEDsActuator *ci_leds_ptr_;
 
     /* Pointer to the random number generator */
     CRandom::CRNG *RNG_ptr_;
@@ -194,6 +194,12 @@ protected:
 
     /* Sensor degradation filter */
     std::shared_ptr<SensorDegradationFilter> sensor_degradation_filter_ptr_;
+
+    /* Messages received by the WiFi sensor */
+    std::vector<CCI_KheperaIVWiFiSensor::SMessage> messages_vec_;
+
+    /* Position of the robot based on the positioning sensor */
+    CVector2 self_position_;
 
     Real assumed_degradation_drift_ = 0.0;
 

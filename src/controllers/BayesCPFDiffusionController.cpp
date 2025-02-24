@@ -64,11 +64,11 @@ void BayesCPFDiffusionController::DiffusionParams::Init(TConfigurationNode &xml_
 /****************************************/
 
 BayesCPFDiffusionController::BayesCPFDiffusionController() : ci_wheels_ptr_(NULL),
-                                                             //  ci_rab_actuator_ptr_(NULL),
-                                                             //  ci_rab_sensor_ptr_(NULL),
+                                                             ci_positioning_sensor_ptr_(NULL),
+                                                             ci_wifi_actuator_ptr_(NULL),
+                                                             ci_wifi_sensor_ptr_(NULL),
                                                              ci_ground_ptr_(NULL),
                                                              ci_proximity_ptr_(NULL),
-                                                             ci_leds_ptr_(NULL),
                                                              sensor_degradation_filter_ptr_(NULL),
                                                              collective_perception_algo_ptr_(std::make_shared<CollectivePerception>())
 {
@@ -83,13 +83,11 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
         {
             ci_wheels_ptr_ = GetActuator<CCI_DifferentialSteeringActuator>("differential_steering");
             wheel_turning_params_.Init(GetNode(xml_node, "wheel_turning"));
-            // ci_rab_actuator_ptr_ = GetActuator<CCI_RangeAndBearingActuator>("range_and_bearing");
-            // ci_rab_sensor_ptr_ = GetSensor<CCI_RangeAndBearingSensor>("range_and_bearing");
-            // ci_wifi_sensor_ptr_ = GetSensor<CCI_KheperaIVWiFiSensor>("wifi_sensor");
-            // ci_wifi_actuator_ptr_ = GetActuator<CCI_KheperaIVWiFiActuator>("wifi_actuator");
+            // ci_positioning_sensor_ptr_ = GetSensor<CCI_PositioningSensor>("kheperaiv_positioning_vicon");
+            ci_wifi_sensor_ptr_ = GetSensor<CCI_KheperaIVWiFiSensor>("kheperaiv_wifi");
+            ci_wifi_actuator_ptr_ = GetActuator<CCI_KheperaIVWiFiActuator>("kheperaiv_wifi");
             ci_ground_ptr_ = GetSensor<CCI_KheperaIVGroundSensor>("kheperaiv_ground");
             ci_proximity_ptr_ = GetSensor<CCI_KheperaIVProximitySensor>("kheperaiv_proximity");
-            ci_leds_ptr_ = GetActuator<CCI_LEDsActuator>("leds");
 
             // comms_params_.RABDataSize = ci_rab_actuator_ptr_->GetSize();
         }
@@ -121,6 +119,10 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "true_deg_diffusion_coeff", ground_sensor_params_.DegradationCoefficients["diffusion"]);
     GetNodeAttributeOrDefault(GetNode(xml_node, "ground_sensor"), "lowest_degraded_acc_lvl", ground_sensor_params_.LowestDegradedAccuracyLevel, float(0.5 + ZERO_APPROX));
     GetNodeAttribute(GetNode(xml_node, "comms"), "period_ticks", comms_params_.CommsPeriodTicks);
+    GetNodeAttribute(GetNode(xml_node, "comms"), "single_hop_radius", comms_params_.SingleHopRadius);
+    // GetNodeAttribute(GetNode(xml_node, "kheperaiv_wifi"));
+    // GetNodeAttribute(GetNode(xml_node, "kheperaiv_wifi"));
+    // GetNodeAttribute(GetNode(xml_node, "kheperaiv_positioning_vicon"), "vicon_server_ip", xxx);
 
     ground_sensor_params_.InitialActualAcc = ground_sensor_params_.ActualSensorAcc; // keep a copy of the original
 
@@ -199,7 +201,6 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     sensor_degradation_filter_params.AssumedSensorAcc["b"] = ground_sensor_params_.ActualSensorAcc["b"];
     sensor_degradation_filter_params.AssumedSensorAcc["w"] = ground_sensor_params_.ActualSensorAcc["w"];
     sensor_degradation_filter_params.RunDegradationFilter = false; // will be activated from the loop functions if required
-    SetLEDs(CColor::BLUE);                                         // set to blue initially
 
     GetNodeAttribute(sensor_degradation_filter_node, "period_ticks", sensor_degradation_filter_params.FilterActivationPeriodTicks);
 
@@ -249,6 +250,7 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     /* Create a random number generator. We use the 'argos' category so
        that creation, reset, seeding and cleanup are managed by ARGoS. */
+    CRandom::CreateCategory("argos", 0); // need to create the category first for non-simulator controllers
     RNG_ptr_ = CRandom::CreateRNG("argos");
 
     // Initialize the filter algorithms
@@ -267,19 +269,6 @@ void BayesCPFDiffusionController::Reset()
     if (sensor_degradation_filter_ptr_->GetParamsPtr()->RunDegradationFilter)
     {
         sensor_degradation_filter_ptr_->Reset();
-
-        if (sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc == ground_sensor_params_.ActualSensorAcc)
-        {
-            SetLEDs(CColor::GREEN); // has the correct assumed accuracy to start
-        }
-        else
-        {
-            SetLEDs(CColor::RED);
-        }
-    }
-    else
-    {
-        SetLEDs(CColor::BLUE);
     }
 }
 
@@ -300,17 +289,15 @@ std::vector<Real> BayesCPFDiffusionController::GetData() const
             collective_perception_algo_ptr_->GetParamsPtr()->WeightedAverageInformedEstimate};
 }
 
-void BayesCPFDiffusionController::SetLEDs(const CColor &color)
-{
-    ci_leds_ptr_->SetAllColors(color);
-}
-
 void BayesCPFDiffusionController::ControlStep()
 {
     ++tick_counter_;
 
     // Move robot
     SetWheelSpeedsFromVector(ComputeDiffusionVector());
+
+    // Update information on self position
+    GetSelfPosition();
 
     // Collect ground measurement and compute local estimate
     if (tick_counter_ % ground_sensor_params_.GroundMeasurementPeriodTicks == 0)
@@ -396,37 +383,16 @@ void BayesCPFDiffusionController::ControlStep()
         CByteArray data;
 
         data << GetId();
+        data << self_position_.GetX(); // TODO: obtained from the positioning_sensor
+        data << self_position_.GetY(); // TODO: obtained from the positioning_sensor
         data << local_est.X;
         data << local_est.Confidence;
 
-        // Resize data
-        if (comms_params_.RABDataSize > data.Size())
-        {
-            data.Resize(comms_params_.RABDataSize);
-        }
-        else
-        {
-            THROW_ARGOSEXCEPTION("Allocated RAB data size is too small, please increase it.");
-        }
+        // Broadcast data
+        ci_wifi_actuator_ptr_->SendToMany(data);
 
-        // TODO: setup client sockets for comms (this might already be handled by the wifi actuator), positioning (this should be handled by the positioning sensor), and data logging (make sure to create a loop functions that listens)
-
-        // // Broadcast data
-        // ci_rab_actuator_ptr_->SetData(data);
-
-        // // Listen to neighbors, if any
-        // CCI_RangeAndBearingSensor::TReadings packets = ci_rab_sensor_ptr_->GetReadings();
-
-        // std::vector<CollectivePerception::EstConfPair> neighbor_vals(packets.size());
-
-        // for (size_t i = 0; i < packets.size(); ++i)
-        // {
-        //     packets[i].Data >> neighbor_vals[i].Id;
-        //     packets[i].Data >> neighbor_vals[i].X;
-        //     packets[i].Data >> neighbor_vals[i].Confidence;
-        // }
-
-        // collective_perception_algo_ptr_->ComputeSocialEstimate(neighbor_vals);
+        // Listen to neighbors, if any, and compute social estimate
+        collective_perception_algo_ptr_->ComputeSocialEstimate(GetNeighborMessages());
     }
 
     // Compute informed estimate only if there are new local or social estimates
@@ -457,7 +423,66 @@ void BayesCPFDiffusionController::ControlStep()
     }
 }
 
-// TODO: compute the distance of ego to all others to see which of the received messages should be consumed
+std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetNeighborMessages()
+{
+    // Get all of the messages on the multicast address
+    ci_wifi_sensor_ptr_->GetMessages(messages_vec_);
+
+    std::vector<CollectivePerception::EstConfPair> neighbor_vals;
+
+    if (messages_vec_.size() > 0)
+    {
+        CVector2 neighbor_position = CVector2::ZERO;
+
+        Real distance;
+
+        for (size_t i = 0; i < messages_vec_.size(); ++i)
+        {
+            std::string id_str;
+            Real local_est, local_conf, neighbor_x, neighbor_y;
+
+            messages_vec_[i].Payload >> id_str;
+            messages_vec_[i].Payload >> neighbor_x;
+            messages_vec_[i].Payload >> neighbor_y;
+            messages_vec_[i].Payload >> local_est;
+            messages_vec_[i].Payload >> local_conf;
+
+            neighbor_position.Set(neighbor_x, neighbor_y);
+
+            // Check if distance is too far for robot to be considered a neighbor
+            distance = Distance(self_position_, neighbor_position);
+
+            if (distance > comms_params_.SingleHopRadius)
+            {
+                continue;
+            }
+            else
+            {
+                CollectivePerception::EstConfPair neighbor_val;
+
+                neighbor_val.Id = id_str;
+                neighbor_val.X = local_est;
+                neighbor_val.Confidence = local_conf;
+
+                neighbor_vals.push_back(neighbor_val);
+            }
+        }
+
+        // Clean up
+        ci_wifi_sensor_ptr_->FlushMessages();
+    }
+
+    return neighbor_vals;
+}
+
+void BayesCPFDiffusionController::GetSelfPosition()
+{
+    // TODO: get position from positioning sensor
+    // self_position_ = ci_positioning_sensor_ptr_->GetReading().Position.ProjectOntoXY();
+
+    // TODO: for now this is just set to the origin
+    self_position_ = CVector2::ZERO;
+}
 
 void BayesCPFDiffusionController::EvolveSensorDegradation()
 {

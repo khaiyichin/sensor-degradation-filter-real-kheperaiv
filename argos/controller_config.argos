@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<argos-configuration>
+
+    <!-- ************************* -->
+    <!-- * General configuration * -->
+    <!-- ************************* -->
+    <framework>
+        <experiment ticks_per_second="10" />
+    </framework>
+
+    <!-- *************** -->
+    <!-- * Controllers * -->
+    <!-- *************** -->
+    <controllers>
+
+        <bayes_cpf_diffusion_controller id="bcdc"
+            library="libsensor_degradation_filter_real_kheperaiv_controllers">
+            <actuators>
+                <differential_steering implementation="default" />
+                <kheperaiv_wifi multicast_address="239.0.0.1" multicast_port="5000" />
+                <leds implementation="default" medium="leds" />
+            </actuators>
+            <sensors>
+                <kheperaiv_ground implementation="rot_z_only" />
+                <kheperaiv_wifi multicast_address="239.0.0.1" multicast_port="5000" multicast_timeout="500"/>
+                <kheperaiv_proximity implementation="default" show_rays="false" />
+            </sensors>
+            <params>
+                <diffusion go_straight_angle_range="-5:5" delta="0.1" />
+                <ground_sensor
+                    period_ticks="5"
+                    sensor_acc_b="0.95"
+                    sensor_acc_w="0.95"
+                    sim="true"
+                    dynamic="true"
+                    true_deg_drift_coeff="0.0"
+                    true_deg_diffusion_coeff="-1.0"
+                    lowest_degraded_acc_lvl="0.5" />
+                <comms period_ticks="10" single_hop_radius="0.7" />
+                <wheel_turning
+                    hard_turn_angle_threshold="90"
+                    soft_turn_angle_threshold="70"
+                    no_turn_angle_threshold="10"
+                    max_speed="0" /> <!-- speed in cm/s -->
+                <sensor_degradation_filter
+                    method="DELTA"
+                    period_ticks="5"
+                    observation_queue_size="1000"
+                    dynamic_observation_queue="true"
+                    use_weighted_avg_informed_est="true"
+                    dynamic_observation_queue_window_size="500">
+                    <params
+                        pred_deg_model_B="-5e-5"
+                        pred_deg_var_R="1e-4"
+                        init_mean="0.99"
+                        init_var="0.001"
+                        lowest_assumed_acc_lvl="0.5"
+                        variant="bin" /> <!-- DELTA filter specific parameters -->
+                </sensor_degradation_filter>
+            </params>
+        </bayes_cpf_diffusion_controller>
+
+    </controllers>
+
+</argos-configuration>
