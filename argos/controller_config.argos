@@ -18,11 +18,13 @@
             <actuators>
                 <differential_steering implementation="default" />
                 <kheperaiv_wifi multicast_address="239.0.0.1" multicast_port="5000" />
-                <leds implementation="default" medium="leds" />
             </actuators>
             <sensors>
                 <kheperaiv_ground implementation="rot_z_only" />
-                <kheperaiv_wifi multicast_address="239.0.0.1" multicast_port="5000" multicast_timeout="500"/>
+                <kheperaiv_wifi
+                    multicast_address="239.0.0.1"
+                    multicast_port="5000"
+                    multicast_timeout="500" />
                 <kheperaiv_proximity implementation="default" show_rays="false" />
             </sensors>
             <params>
@@ -41,7 +43,7 @@
                     hard_turn_angle_threshold="90"
                     soft_turn_angle_threshold="70"
                     no_turn_angle_threshold="10"
-                    max_speed="0" /> <!-- speed in cm/s -->
+                    max_speed="10" /> <!-- speed in cm/s -->
                 <sensor_degradation_filter
                     method="DELTA"
                     period_ticks="5"

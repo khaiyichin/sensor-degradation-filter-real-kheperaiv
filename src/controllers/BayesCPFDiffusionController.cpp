@@ -120,9 +120,6 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     GetNodeAttributeOrDefault(GetNode(xml_node, "ground_sensor"), "lowest_degraded_acc_lvl", ground_sensor_params_.LowestDegradedAccuracyLevel, float(0.5 + ZERO_APPROX));
     GetNodeAttribute(GetNode(xml_node, "comms"), "period_ticks", comms_params_.CommsPeriodTicks);
     GetNodeAttribute(GetNode(xml_node, "comms"), "single_hop_radius", comms_params_.SingleHopRadius);
-    // GetNodeAttribute(GetNode(xml_node, "kheperaiv_wifi"));
-    // GetNodeAttribute(GetNode(xml_node, "kheperaiv_wifi"));
-    // GetNodeAttribute(GetNode(xml_node, "kheperaiv_positioning_vicon"), "vicon_server_ip", xxx);
 
     ground_sensor_params_.InitialActualAcc = ground_sensor_params_.ActualSensorAcc; // keep a copy of the original
 

@@ -23,13 +23,13 @@ add_library(${PROJECT_NAME}_algorithms
 # Copy the header files
 install(
     FILES ${HEADER_FILES}
-    DESTINATION include/sensor_degradation_filter_real_kheperaiv_nestlab/algorithms
+    DESTINATION include/sensor_degradation_filter_real_kheperaiv/algorithms
 )
 
 # Install the library
 install(
     TARGETS ${PROJECT_NAME}_algorithms
     RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib/sensor_degradation_filter_real_kheperaiv_nestlab
-    ARCHIVE DESTINATION lib/sensor_degradation_filter_real_kheperaiv_nestlab
+    LIBRARY DESTINATION lib/sensor_degradation_filter_real_kheperaiv
+    ARCHIVE DESTINATION lib/sensor_degradation_filter_real_kheperaiv
 )

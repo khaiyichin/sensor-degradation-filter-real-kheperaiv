@@ -1,5 +1,5 @@
-
-This repository contains code for the controllers to be cross-compiled for the Khepera IV.
+# Sensor Degradation Filter Library for Real Khepera IV Robots
+This repository contains code for the libraries and controllers to be cross-compiled for the Khepera IV. The controller is primarily for physical experiments with the Vicon Datastream server, which is the setup that [NEST Lab](https://nestlab.net/) has currently.
 
 Things that are simulated:
 - degradation of ground sensor readings (the actual readings are still being read from the physical sensor)
@@ -9,17 +9,40 @@ Things that aren't simulated:
 - obstacle avoidance
 - led (may consider turning this off to improve robot battery life)
 
-### Docker build instructions
-Do it from the project's root directory
 
-First build the base (containing ARGoS, Buzz, and the `argos3-kheperaiv` plugin)
-```
-docker image build -t nestlab/kheperaiv --file docker/DockerfileBase .
-```
 
-Then build the controller 
+## Instructions
+1. Run `cross_compile_binaries.sh`:
+    ```
+    $ ./scripts/cross_compile_binaries.sh
+    ```
+    This runs `image_build_script.sh` under the hood to create the cross-compiler images. You should get a compressed archive with the name `deployment_files.tar.gz`, which contains the binaries and libraries compiled for the Khepera IV.
 
-### dev notes
+2. Copy the archive to the robot (`Khepera01` in this example):
+    ```
+    $ scp deployment_files.tar.gz root@Khepera01:/home/root/
+    ```
+
+3. SSH into the robot, then extract the archive into the `/opt/sensor_degradation_filter_real_kheperaiv` directory:
+    ```
+    $ mkdir -p /opt/sensor_degradation_filter_real_kheperaiv
+    $ tar -xf deployment_files.tar.gz -C /opt/sensor_degradation_filter_real_kheperaiv/
+    ```
+    Note that for the Khepera IV robots at the NEST Lab `root` is typically used to SSH into the robots---the scripts may not work as intended if that isn't the case.
+
+4. On the robot, run the installation script:
+    ```
+    ./opt/sensor_degradation_filter_real_kheperaiv/install.sh
+    ```
+
+## Dev notes
+For the docker cross-compilation to work, the following is required in the `docker` directory:
+- libkhepera-2.1.tar.bz2
+- poky-glibc-i686-khepera4-image-cortexa8hf-vfp-neon-toolchain-1.8.sh
+
+Both can originally be found on the [K-Team](https://www.k-team.com) site, but as of 02/24/2025 the website is down. Alternatively, copies are backed up on the NEST Lab OneDrive and can be downloaded from there.
+
+
 what changed:
 - std::accumulate for std::reduce (only supported in c++17)
 - CCI_RangeAndBearingSensor::TReadings replaced with std::vector<CCI_KheperaIVWiFiSensor::SMessage> in the controller

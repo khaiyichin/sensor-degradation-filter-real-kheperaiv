@@ -1,1 +1,5 @@
 build/
+*.tar*
+
+# Khepera IV toolchain file which is about 400 MB
+poky-glibc-i686-khepera4-image-cortexa8hf-vfp-neon-toolchain-1.8.sh

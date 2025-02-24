@@ -1,3 +1,8 @@
+# ############################################################
+# The original copy to this file is obtained from:
+# https://github.com/ilpincy/argos3-kheperaiv/blob/7bb1bb36639556e6e0d318b1be03ca44e6d3114c/docker/Dockerfile
+# ############################################################
+#
 #
 # Place the files
 #
@@ -62,9 +67,10 @@ RUN tar xjf libkhepera-*.tar.bz2 && \
     cp -a build*/* $ARGOS3KHIV
 
 # Get ARGoS and plugin
+# TODO: use main branches (ensure that updates are merged into main)
 RUN git clone https://github.com/ilpincy/argos3
 RUN git clone https://github.com/NESTLab/Buzz.git buzz
-RUN git clone https://github.com/nestlab/argos3-kheperaiv
+RUN git clone -b feature/wifi_comms https://github.com/nestlab/argos3-kheperaiv
 
 # Make sure the toolchain configuration is in the environment
 SHELL ["/bin/bash", "-c"]
@@ -87,12 +93,7 @@ RUN cd buzz && \
 
 # Compile and install ARGoS-KheperaIV
 RUN cd argos3-kheperaiv && \
-    sed -i "s/cmake_minimum_required(VERSION 3.9)/cmake_minimum_required(VERSION 3.5.1)/g" src/CMakeLists.txt && \
     mkdir build_kheperaiv && \
     cd build_kheperaiv && \
     cmake -DARGOS_BUILD_FOR=khiv -DCMAKE_TOOLCHAIN_FILE=../src/cmake/TargetKheperaIV.cmake -DCMAKE_INSTALL_PREFIX=$ARGOS3KHIV -DKHEPERAIV_LIBS=$ARGOS3KHIV ../src && \
     make install
-
-# # Cleanup
-# RUN rm -rf /work/* && \
-#   apt-get autoremove

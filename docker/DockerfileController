@@ -1,20 +1,31 @@
 # THIS HAS TO BE RUN IN THE PROJECT'S ROOT FOLDER FOR THE DOCKER BUILD CONTEXT TO INCLUDE SRC/
 
 FROM nestlab/kheperaiv
-ENV LAST_MODIFIED="2025-02-23:00.43"
+ENV LAST_MODIFIED="2025-02-24:16.14"
 
 # Set the working directory
 WORKDIR /work
 
 # Compile the BayesCPFDiffusion controller
+
+##### TEMPORARY; TODO: WILL USE GIT CLONE IN FINAL IMPLEMENTATION #####
 COPY src ./sensor-degradation-filter-real-kheperaiv/src
+COPY scripts/setup.sh ./sensor-degradation-filter-real-kheperaiv/scripts/
+COPY scripts/install.sh ./sensor-degradation-filter-real-kheperaiv/scripts/
 
-# RUN cd sensor-degradation-filter-real-kheperaiv && \
-#     mkdir build_kheperaiv \
-#     cd build_kheperaiv && \
-#     cmake -DARGOS_BUILD_FOR=khiv -DCMAKE_TOOLCHAIN_FILE=../src/cmake/TargetKheperaIV.cmake -DCMAKE_INSTALL_PREFIX=$ARGOS3KHIV -DKHEPERAIV_LIBS=$ARGOS3KHIV ../src && \
-#     make install
+RUN cd sensor-degradation-filter-real-kheperaiv && \
+    mkdir build_kheperaiv && \
+    cd build_kheperaiv && \
+    cmake -DARGOS_BUILD_FOR=khiv -DCMAKE_TOOLCHAIN_FILE=../src/cmake/TargetKheperaIV.cmake -DCMAKE_INSTALL_PREFIX=$ARGOS3KHIV -DKHEPERAIV_LIBS=$ARGOS3KHIV ../src && \
+    make install
 
-# # Cleanup
-# RUN rm -rf /work/* && \
-#   apt-get autoremove
+# Package binaries and libraries
+RUN mkdir -p deployment_files/lib && mkdir -p deployment_files/bin
+
+ENV DEPLOYMENT_DIR=/work/deployment_files
+
+RUN cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/argos3 ${DEPLOYMENT_DIR}/lib && \
+    cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/sensor_degradation_filter_real_kheperaiv ${DEPLOYMENT_DIR}/lib && \
+    cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/libbuzz.so ${DEPLOYMENT_DIR}/lib && \
+    cp /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/bin/bayes_cpf_diffusion_controller ${DEPLOYMENT_DIR}/bin && \
+    cp /work/sensor-degradation-filter-real-kheperaiv/scripts/setup.sh /work/sensor-degradation-filter-real-kheperaiv/scripts/install.sh ${DEPLOYMENT_DIR}/
