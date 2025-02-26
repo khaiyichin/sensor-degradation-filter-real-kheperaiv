@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <numeric>
 #include <argos3/core/utility/logging/argos_log.h>
+#include <thread>
+#include <cstring>     // memset
+#include <arpa/inet.h> // socket, connect, send
+#include <unistd.h>    // close
 
 #include "algorithms/BayesCPF.hpp"
 #include "BayesCPFDiffusionController.hpp"
@@ -53,6 +57,10 @@ void BayesCPFDiffusionController::DiffusionParams::Init(TConfigurationNode &xml_
         GoStraightAngleRange.Set(ToRadians(cGoStraightAngleRangeDegrees.GetMin()),
                                  ToRadians(cGoStraightAngleRangeDegrees.GetMax()));
         GetNodeAttribute(xml_node, "delta", Delta);
+        GetNodeAttribute(xml_node, "bounds_x", BoundsX);
+        GetNodeAttribute(xml_node, "bounds_y", BoundsY);
+        // DEBUG
+        THROW_ARGOSEXCEPTION("bounds not implemented yet!!");
     }
     catch (CARGoSException &ex)
     {
@@ -131,6 +139,10 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     {
         THROW_ARGOSEXCEPTION("Cannot have a sensor accuracy lower than 0.5.");
     }
+
+    // Get ARGoS server parameters
+    GetNodeAttribute(GetNode(xml_node, "argos_server"), "address", argos_server_params_.Address);
+    GetNodeAttribute(GetNode(xml_node, "argos_server"), "port", argos_server_params_.Port);
 
     // Initialize Bayes CPF
     TConfigurationNode &sensor_degradation_filter_node = GetNode(xml_node, "sensor_degradation_filter");
@@ -252,21 +264,42 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     // Initialize the filter algorithms
     sensor_degradation_filter_ptr_->Init();
+
+    // Connect to the ARGoS server
+    ConnectToARGoSServer();
+}
+
+void BayesCPFDiffusionController::ConnectToARGoSServer()
+{
+    // Create a socket
+    socket_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_ < 0)
+    {
+        THROW_ARGOSEXCEPTION("Error creating socket: " << ::strerror(errno));
+    }
+
+    // Configure server address
+    sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = ::htons(argos_server_params_.Port);
+    ::inet_pton(AF_INET, argos_server_params_.Address, &server_addr.sin_ addr); // convert string address to binary
+
+    // Connect to server
+    if (::connect(socket_, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        THROW_ARGOSEXCEPTION("Error connecting to socket server: " << strerror(errno));
+    }
+
+    LOG << "Connected to server!" << std::endl;
+
+    // Create thread to listen to server
+    std::thread listener_thread(&BayesCPFDiffusionController::ListenToServer, this);
+    listener_thread.detach(); // Ensure thread completes before exiting
 }
 
 void BayesCPFDiffusionController::Reset()
 {
-    tick_counter_ = 0;
-
-    collective_perception_algo_ptr_->Reset();
-
-    // Reset the actual ground sensor accuracies
-    ground_sensor_params_.ActualSensorAcc = ground_sensor_params_.InitialActualAcc;
-
-    if (sensor_degradation_filter_ptr_->GetParamsPtr()->RunDegradationFilter)
-    {
-        sensor_degradation_filter_ptr_->Reset();
-    }
+    THROW_ARGOSEXCEPTION("Reset functionality is not available for real robot controller.");
 }
 
 std::vector<Real> BayesCPFDiffusionController::GetData() const
@@ -288,135 +321,145 @@ std::vector<Real> BayesCPFDiffusionController::GetData() const
 
 void BayesCPFDiffusionController::ControlStep()
 {
-    ++tick_counter_;
-
-    // Move robot
-    SetWheelSpeedsFromVector(ComputeDiffusionVector());
-
-    // Update information on self position
-    GetSelfPosition();
-
-    // Collect ground measurement and compute local estimate
-    if (tick_counter_ % ground_sensor_params_.GroundMeasurementPeriodTicks == 0)
+    if (start_flag_.load(std::memory_order_acquire))
     {
-        // Check if an observation queue is used
-        if (!collective_perception_algo_ptr_->GetParamsPtr()->UseObservationQueue)
-        {
-            collective_perception_algo_ptr_->GetParamsPtr()->NumBlackTilesSeen += 1 - ObserveTileColor(); // the collective perception algorithm flips the black and white tiles
-            ++collective_perception_algo_ptr_->GetParamsPtr()->NumObservations;
-        }
-        else // use an observation queue
-        {
-            size_t dynamic_queue_size = collective_perception_algo_ptr_->GetParamsPtr()->MaxObservationQueueSize;
+        ++tick_counter_;
 
-            // Check to see if dynamic queue size is used
-            if (sensor_degradation_filter_ptr_->GetParamsPtr()->UseDynamicObservationQueue &&
-                tick_counter_ >= sensor_degradation_filter_ptr_->GetParamsPtr()->DynamicObservationQueueWindowSize * ground_sensor_params_.GroundMeasurementPeriodTicks)
+        // Move robot
+        SetWheelSpeedsFromVector(ComputeDiffusionVector());
+
+        // Update information on self position
+        GetSelfPosition();
+
+        // Collect ground measurement and compute local estimate
+        if (tick_counter_ % ground_sensor_params_.GroundMeasurementPeriodTicks == 0)
+        {
+            // Check if an observation queue is used
+            if (!collective_perception_algo_ptr_->GetParamsPtr()->UseObservationQueue)
             {
-                // Check whether it's the first time we're calculating the dynamic queue size
-                if (tick_counter_ == sensor_degradation_filter_ptr_->GetParamsPtr()->DynamicObservationQueueWindowSize * ground_sensor_params_.GroundMeasurementPeriodTicks)
+                collective_perception_algo_ptr_->GetParamsPtr()->NumBlackTilesSeen += 1 - ObserveTileColor(); // the collective perception algorithm flips the black and white tiles
+                ++collective_perception_algo_ptr_->GetParamsPtr()->NumObservations;
+            }
+            else // use an observation queue
+            {
+                size_t dynamic_queue_size = collective_perception_algo_ptr_->GetParamsPtr()->MaxObservationQueueSize;
+
+                // Check to see if dynamic queue size is used
+                if (sensor_degradation_filter_ptr_->GetParamsPtr()->UseDynamicObservationQueue &&
+                    tick_counter_ >= sensor_degradation_filter_ptr_->GetParamsPtr()->DynamicObservationQueueWindowSize * ground_sensor_params_.GroundMeasurementPeriodTicks)
                 {
-                    // Store the assumed accuracy for the very first time (so that we actually have the accuracy from one time step before in the later time steps)
-                    prev_assumed_acc_ = sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc["b"]; // update with the latest assumed accuracy
-                }
-                else
-                {
-                    // Collect the current degradation rate and fill ratio reference (i.e., the informed estimate)
-                    previous_degradation_rates_and_fill_ratio_references_.push_back(std::pair<float, float>((sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc["b"] - prev_assumed_acc_) / ground_sensor_params_.GroundMeasurementPeriodTicks,
-                                                                                                            collective_perception_algo_ptr_->GetInformedVals().X));
-
-                    // Maintain the fixed window size
-                    if (previous_degradation_rates_and_fill_ratio_references_.size() > sensor_degradation_filter_ptr_->GetParamsPtr()->DynamicObservationQueueWindowSize)
+                    // Check whether it's the first time we're calculating the dynamic queue size
+                    if (tick_counter_ == sensor_degradation_filter_ptr_->GetParamsPtr()->DynamicObservationQueueWindowSize * ground_sensor_params_.GroundMeasurementPeriodTicks)
                     {
-                        previous_degradation_rates_and_fill_ratio_references_.pop_front(); // ensure the queue stays true to the desired window size
-                    }
-                    prev_assumed_acc_ = sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc["b"]; // update with the latest assumed accuracy
-
-                    // Compute the average values
-                    averaged_deg_rates_and_fill_ratio_refs_ = std::accumulate(previous_degradation_rates_and_fill_ratio_references_.begin(),
-                                                                              previous_degradation_rates_and_fill_ratio_references_.end(),
-                                                                              std::pair<Real, Real>(0.0, 0.0),
-                                                                              [](std::pair<Real, Real> left, std::pair<Real, Real> right)
-                                                                              {
-                                                                                  return std::pair<Real, Real>(left.first + right.first, left.second + right.second);
-                                                                              });
-
-                    averaged_deg_rates_and_fill_ratio_refs_ = {averaged_deg_rates_and_fill_ratio_refs_.first / previous_degradation_rates_and_fill_ratio_references_.size(),
-                                                               sensor_degradation_filter_ptr_->GetParamsPtr()->UseWeightedAvgInformedEstimates
-                                                                   ? collective_perception_algo_ptr_->GetParamsPtr()->WeightedAverageInformedEstimate
-                                                                   : averaged_deg_rates_and_fill_ratio_refs_.second / previous_degradation_rates_and_fill_ratio_references_.size()};
-
-                    // Calculate dynamic queue size from the averaged values
-                    if (std::abs(averaged_deg_rates_and_fill_ratio_refs_.first) < ZERO_APPROX)
-                    {
-                        dynamic_queue_size = collective_perception_algo_ptr_->GetParamsPtr()->MaxObservationQueueSize;
+                        // Store the assumed accuracy for the very first time (so that we actually have the accuracy from one time step before in the later time steps)
+                        prev_assumed_acc_ = sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc["b"]; // update with the latest assumed accuracy
                     }
                     else
                     {
-                        dynamic_queue_size = static_cast<int>(std::ceil(0.02 /
-                                                                        std::abs(sensor_degradation_filter_ptr_->GetParamsPtr()->FilterActivationPeriodTicks *
-                                                                                 (2.0 * averaged_deg_rates_and_fill_ratio_refs_.second - 1.0) *
-                                                                                 averaged_deg_rates_and_fill_ratio_refs_.first)));
+                        // Collect the current degradation rate and fill ratio reference (i.e., the informed estimate)
+                        previous_degradation_rates_and_fill_ratio_references_.push_back(std::pair<float, float>((sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc["b"] - prev_assumed_acc_) / ground_sensor_params_.GroundMeasurementPeriodTicks,
+                                                                                                                collective_perception_algo_ptr_->GetInformedVals().X));
+
+                        // Maintain the fixed window size
+                        if (previous_degradation_rates_and_fill_ratio_references_.size() > sensor_degradation_filter_ptr_->GetParamsPtr()->DynamicObservationQueueWindowSize)
+                        {
+                            previous_degradation_rates_and_fill_ratio_references_.pop_front(); // ensure the queue stays true to the desired window size
+                        }
+                        prev_assumed_acc_ = sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc["b"]; // update with the latest assumed accuracy
+
+                        // Compute the average values
+                        averaged_deg_rates_and_fill_ratio_refs_ = std::accumulate(previous_degradation_rates_and_fill_ratio_references_.begin(),
+                                                                                  previous_degradation_rates_and_fill_ratio_references_.end(),
+                                                                                  std::pair<Real, Real>(0.0, 0.0),
+                                                                                  [](std::pair<Real, Real> left, std::pair<Real, Real> right)
+                                                                                  {
+                                                                                      return std::pair<Real, Real>(left.first + right.first, left.second + right.second);
+                                                                                  });
+
+                        averaged_deg_rates_and_fill_ratio_refs_ = {averaged_deg_rates_and_fill_ratio_refs_.first / previous_degradation_rates_and_fill_ratio_references_.size(),
+                                                                   sensor_degradation_filter_ptr_->GetParamsPtr()->UseWeightedAvgInformedEstimates
+                                                                       ? collective_perception_algo_ptr_->GetParamsPtr()->WeightedAverageInformedEstimate
+                                                                       : averaged_deg_rates_and_fill_ratio_refs_.second / previous_degradation_rates_and_fill_ratio_references_.size()};
+
+                        // Calculate dynamic queue size from the averaged values
+                        if (std::abs(averaged_deg_rates_and_fill_ratio_refs_.first) < ZERO_APPROX)
+                        {
+                            dynamic_queue_size = collective_perception_algo_ptr_->GetParamsPtr()->MaxObservationQueueSize;
+                        }
+                        else
+                        {
+                            dynamic_queue_size = static_cast<int>(std::ceil(0.02 /
+                                                                            std::abs(sensor_degradation_filter_ptr_->GetParamsPtr()->FilterActivationPeriodTicks *
+                                                                                     (2.0 * averaged_deg_rates_and_fill_ratio_refs_.second - 1.0) *
+                                                                                     averaged_deg_rates_and_fill_ratio_refs_.first)));
+                        }
                     }
+                    collective_perception_algo_ptr_->GetParamsPtr()->AddToQueue(1 - ObserveTileColor(), dynamic_queue_size); // add to observation queue
                 }
-                collective_perception_algo_ptr_->GetParamsPtr()->AddToQueue(1 - ObserveTileColor(), dynamic_queue_size); // add to observation queue
+                else // not using dynamic queue sizes
+                {
+                    collective_perception_algo_ptr_->GetParamsPtr()->AddToQueue(1 - ObserveTileColor(), -1);
+                }
             }
-            else // not using dynamic queue sizes
-            {
-                collective_perception_algo_ptr_->GetParamsPtr()->AddToQueue(1 - ObserveTileColor(), -1);
-            }
+            collective_perception_algo_ptr_->ComputeLocalEstimate(sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc.at("b"),
+                                                                  sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc.at("w"));
         }
-        collective_perception_algo_ptr_->ComputeLocalEstimate(sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc.at("b"),
-                                                              sensor_degradation_filter_ptr_->GetParamsPtr()->AssumedSensorAcc.at("w"));
-    }
 
-    // Communicate local estimates and compute social estimate
-    if (tick_counter_ % comms_params_.CommsPeriodTicks == 0)
-    {
-        // Extract local estimate
-        CollectivePerception::EstConfPair local_est = collective_perception_algo_ptr_->GetLocalVals();
-
-        // Serialize data
-        CByteArray data;
-
-        data << GetId();
-        data << self_position_.GetX(); // TODO: obtained from the positioning_sensor
-        data << self_position_.GetY(); // TODO: obtained from the positioning_sensor
-        data << local_est.X;
-        data << local_est.Confidence;
-
-        // Broadcast data
-        ci_wifi_actuator_ptr_->SendToMany(data);
-
-        // Listen to neighbors, if any, and compute social estimate
-        collective_perception_algo_ptr_->ComputeSocialEstimate(GetNeighborMessages());
-    }
-
-    // Compute informed estimate only if there are new local or social estimates
-    if (tick_counter_ % ground_sensor_params_.GroundMeasurementPeriodTicks == 0 || tick_counter_ % comms_params_.CommsPeriodTicks == 0)
-    {
-        collective_perception_algo_ptr_->ComputeInformedEstimate();
-
-        // Compute the weighted average informed estimates
-        if (sensor_degradation_filter_ptr_->GetParamsPtr()->UseWeightedAvgInformedEstimates)
+        // Communicate local estimates and compute social estimate
+        if (tick_counter_ % comms_params_.CommsPeriodTicks == 0)
         {
-            collective_perception_algo_ptr_->GetParamsPtr()->ComputeWeightedAverageFillRatioReference(collective_perception_algo_ptr_->GetInformedVals().X);
+            // Extract local estimate
+            CollectivePerception::EstConfPair local_est = collective_perception_algo_ptr_->GetLocalVals();
+
+            // Serialize data
+            CByteArray data;
+
+            {
+                std::lock_guard<std::mutex> lock(self_pose_mutex_);
+
+                data << GetId();
+                data << self_pose_.GetX(); // TODO: obtained from the positioning_sensor
+                data << self_pose_.GetY(); // TODO: obtained from the positioning_sensor
+                data << local_est.X;
+                data << local_est.Confidence;
+            }
+
+            // Broadcast data
+            ci_wifi_actuator_ptr_->SendToMany(data);
+
+            // Listen to neighbors, if any, and compute social estimate
+            collective_perception_algo_ptr_->ComputeSocialEstimate(GetNeighborMessages());
         }
-    }
 
-    // Run degradation filter
-    if (sensor_degradation_filter_ptr_->GetParamsPtr()->RunDegradationFilter && tick_counter_ % sensor_degradation_filter_ptr_->GetParamsPtr()->FilterActivationPeriodTicks == 0)
-    {
-        sensor_degradation_filter_ptr_->Estimate();
+        // Compute informed estimate only if there are new local or social estimates
+        if (tick_counter_ % ground_sensor_params_.GroundMeasurementPeriodTicks == 0 || tick_counter_ % comms_params_.CommsPeriodTicks == 0)
+        {
+            collective_perception_algo_ptr_->ComputeInformedEstimate();
 
-        // Update sensor accuracies
-        UpdateAssumedSensorAcc(sensor_degradation_filter_ptr_->GetAccuracyEstimates());
-    }
+            // Compute the weighted average informed estimates
+            if (sensor_degradation_filter_ptr_->GetParamsPtr()->UseWeightedAvgInformedEstimates)
+            {
+                collective_perception_algo_ptr_->GetParamsPtr()->ComputeWeightedAverageFillRatioReference(collective_perception_algo_ptr_->GetInformedVals().X);
+            }
+        }
 
-    // Evolve sensor degradation
-    if (ground_sensor_params_.IsSimulated && ground_sensor_params_.IsDynamic)
-    {
-        EvolveSensorDegradation();
+        // Run degradation filter
+        if (sensor_degradation_filter_ptr_->GetParamsPtr()->RunDegradationFilter && tick_counter_ % sensor_degradation_filter_ptr_->GetParamsPtr()->FilterActivationPeriodTicks == 0)
+        {
+            sensor_degradation_filter_ptr_->Estimate();
+
+            // Update sensor accuracies
+            UpdateAssumedSensorAcc(sensor_degradation_filter_ptr_->GetAccuracyEstimates());
+        }
+
+        // Evolve sensor degradation
+        if (ground_sensor_params_.IsSimulated && ground_sensor_params_.IsDynamic)
+        {
+            EvolveSensorDegradation();
+        }
+
+        // Send data for this timestep to the server
+        SendDataToServer();
     }
 }
 
@@ -447,7 +490,7 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
             neighbor_position.Set(neighbor_x, neighbor_y);
 
             // Check if distance is too far for robot to be considered a neighbor
-            distance = Distance(self_position_, neighbor_position);
+            distance = Distance(self_pose_, neighbor_position);
 
             if (distance > comms_params_.SingleHopRadius)
             {
@@ -472,13 +515,96 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
     return neighbor_vals;
 }
 
+void BayesCPFDiffusionController::ListenToServer()
+{
+    UInt8 *buffer = new UInt8[server_msg_size_]; // 64 bytes should be sufficient
+    ssize_t bytes_received;
+    CByteArray received_data;
+
+    // Format: start_bit (UInt8), ID (string), X (Real), Y (Real), Theta (Real)
+    UInt8 start_bit = 0;
+    std::string name;
+    Real x, y, theta;
+
+    while (!shutdown_flag_.load(std::memory_order_acquire))
+    {
+        // Receive message from server
+        bytes_received = ::recv(socket_, buffer, server_msg_size_, 0);
+
+        // Check if the connection is closed (0 bytes received)
+        if (bytes_received == 0)
+        {
+            THROW_ARGOSEXCEPTION("Server disconnected.");
+        }
+
+        // Check for errors during receiving data
+        if (bytes_received < 0)
+        {
+            THROW_ARGOSEXCEPTION("Error receiving data from server.");
+        }
+
+        // Store the received data
+        received_data = CByteArray(buffer, bytes_received);
+        received_data >> start_bit;
+        received_data >> name;
+        received_data >> x;
+        received_data >> y;
+        received_data >> theta;
+
+        // Ensure the correct message has been received
+        if (name != GetId())
+        {
+            THROW_ARGOSEXCEPTION("Received message was intended for " << name << ", not " << GetId());
+        }
+
+        // Set the position data
+        {
+            std::lock_guard<std::mutex> lock(self_pose_mutex_);
+            self_pose_.SetX(x);
+            self_pose_.SetY(y);
+            self_pose_.SetZ(theta);
+        }
+
+        // Set the flag to start the robot operation
+        if (start_bit == 1)
+        {
+            start_flag_.store(true, std::memory_order_release);
+        }
+
+        // Reduce CPU usage
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
 void BayesCPFDiffusionController::GetSelfPosition()
 {
     // TODO: get position from positioning sensor
-    // self_position_ = ci_positioning_sensor_ptr_->GetReading().Position.ProjectOntoXY();
+    // self_pose_ = ci_positioning_sensor_ptr_->GetReading().Position.ProjectOntoXY();
 
     // TODO: for now this is just set to the origin
-    self_position_ = CVector2::ZERO;
+    self_pose_ = CVector2::ZERO;
+    {
+        std::lock_guard<std::mutex> lock(self_pose_mutex_);
+    }
+}
+
+void BayesCPFDiffusionController::SendDataToServer()
+{
+    CByteArray data_to_send;
+    std::vector<Real> data = GetData();
+
+    data_to_send << data.size();
+
+    for (auto itr = data.begin(); itr != data.end(); ++itr)
+    {
+        data_to_send << *itr;
+    }
+
+    // Send the data
+    if (::send(socket_, data.ToCArray(), data.Size(), 0) < 0)
+    {
+        THROW_ARGOSEXCEPTION("Error sending data to the ARGoS server:" << ::strerror(errno));
+    }
 }
 
 void BayesCPFDiffusionController::EvolveSensorDegradation()

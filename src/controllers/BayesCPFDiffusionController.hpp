@@ -16,8 +16,10 @@
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_ground_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_proximity_sensor.h>
-#include <argos3/core/utility/math/rng.h>
+// #include <argos3/core/utility/math/rng.h>
+#include <argos3/core/utility/datatypes/byte_array.h>
 
+#include <mutex>
 #include <unordered_map>
 
 #include "algorithms/CollectivePerception.hpp"
@@ -66,6 +68,10 @@ public:
         Real Delta;
         /* Angle tolerance range to go straight. */
         CRange<CRadians> GoStraightAngleRange;
+        /* Movement bounds in x-direction */
+        CRange<Real> BoundsX;
+        /* Movement bounds in y-direction */
+        CRange<Real> BoundsY;
 
         /* Constructor */
         DiffusionParams();
@@ -91,10 +97,23 @@ public:
         Real SingleHopRadius = 0.0;
     };
 
+    struct ARGoSServerParams
+    {
+        std::string Address;
+        SInt32 Port = 0;
+    };
+
 public:
     BayesCPFDiffusionController();
 
-    virtual ~BayesCPFDiffusionController() {}
+    virtual ~BayesCPFDiffusionController()
+    {
+        // Set shutdown flag to stop listener thread
+        shutdown_flag_.store(true, std::memory_order_release);
+
+        // Close the TCP socket
+        ::close(socket_);
+    }
 
     virtual void Init(TConfigurationNode &xml_node);
 
@@ -139,6 +158,8 @@ public:
 private:
     UInt32 ObserveTileColor();
 
+    void ListenToServer();
+
     CVector2 ComputeDiffusionVector();
 
     void SetWheelSpeedsFromVector(const CVector2 &heading_vector);
@@ -150,12 +171,6 @@ private:
     std::vector<CollectivePerception::EstConfPair> GetNeighborMessages();
 
 protected:
-    /* Pointer to the range and bearing actuator */
-    // CCI_RangeAndBearingActuator *ci_rab_actuator_ptr_;
-
-    /* Pointer to the range and bearing sensor */
-    // CCI_RangeAndBearingSensor *ci_rab_sensor_ptr_;
-
     /* Pointer to the positioning sensor */
     CCI_PositioningSensor *ci_positioning_sensor_ptr_;
 
@@ -200,6 +215,13 @@ protected:
 
     /* Position of the robot based on the positioning sensor */
     CVector2 self_position_;
+
+    SInt32 socket_;
+
+    std::mutex self_pose_mutex_;
+
+    std::atomic<bool> start_flag_{false};
+    std::atomic<bool> shutdown_flag_{false};
 
     Real assumed_degradation_drift_ = 0.0;
 
