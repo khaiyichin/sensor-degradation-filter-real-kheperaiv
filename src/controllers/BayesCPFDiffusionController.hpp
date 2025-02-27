@@ -23,6 +23,7 @@
 
 #include "algorithms/CollectivePerception.hpp"
 #include "algorithms/SensorDegradationFilter.hpp"
+#include "messages/RobotServerMessage.hpp"
 
 using namespace argos;
 
@@ -100,7 +101,7 @@ public:
     {
         std::string Address;
         SInt32 Port = 0;
-        size_t MsgSize = 0;
+        size_t MsgSize = 0; // messsage size coming from the server; MUST match the config file used for the loop functions
     };
 
 public:
@@ -233,6 +234,8 @@ protected:
     Real prev_assumed_acc_ = 0.0;
 
     std::pair<Real, Real> averaged_deg_rates_and_fill_ratio_refs_ = {0.0, 0.0};
+
+    std::string network_name_;
 
     size_t window_size_ = 0;
 

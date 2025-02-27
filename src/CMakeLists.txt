@@ -74,3 +74,4 @@ include(${CMAKE_SOURCE_DIR}/cmake/ARGoSBuildChecks.cmake)
 #
 add_subdirectory(algorithms)
 add_subdirectory(controllers)
+add_subdirectory(messages)

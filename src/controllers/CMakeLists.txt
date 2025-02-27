@@ -6,6 +6,7 @@ target_link_libraries(bayes_cpf_diffusion_controller
     argos3plugin_khiv_kheperaiv
     argos3plugin_khiv_genericrobot
     ${PROJECT_NAME}_algorithms
+    ${PROJECT_NAME}_messages
 )
 
 # Copy the header files

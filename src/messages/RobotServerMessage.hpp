@@ -7,6 +7,10 @@
 
 using namespace argos;
 
+/**
+ * @brief Message struct for communication between the robot and the ARGoS server
+ *
+ */
 struct RobotServerMessage
 {
     UInt16 Size;
@@ -28,17 +32,19 @@ struct RobotServerMessage
         std::memcpy(buffer + sizeof(Size), Payload.ToCArray(), Payload.Size());
     }
 
-    inline RobotServerMessage Deserialize(const UInt8 *buffer)
+    inline void Deserialize(const UInt8 *buffer)
     {
-        RobotServerMessage msg;
-
         // Extract the size
-        std::memcpy(&msg.Size, buffer, sizeof(Size));
+        std::memcpy(&Size, buffer, sizeof(Size));
 
         // Extract the payload
-        msg.Payload = CByteArray(buffer + sizeof(Size), Size);
+        Payload = CByteArray(buffer + sizeof(Size), Size);
+    }
 
-        return msg;
+    inline void CleanUp()
+    {
+        Size = 0;
+        Payload.Clear();
     }
 };
 

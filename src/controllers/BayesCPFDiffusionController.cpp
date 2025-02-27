@@ -60,7 +60,7 @@ void BayesCPFDiffusionController::DiffusionParams::Init(TConfigurationNode &xml_
         GetNodeAttribute(xml_node, "bounds_x", BoundsX);
         GetNodeAttribute(xml_node, "bounds_y", BoundsY);
         // DEBUG
-        THROW_ARGOSEXCEPTION("bounds not implemented yet!!");
+        LOG << "bounds not implemented yet!!" << std::endl;
     }
     catch (CARGoSException &ex)
     {
@@ -93,6 +93,19 @@ BayesCPFDiffusionController::~BayesCPFDiffusionController()
 
 void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 {
+    // Set the network name which differs from GetId
+    std::string number;
+
+    for (char ch : GetId())
+    {
+        if (std::isdigit(ch))
+        {
+            number += ch;
+        }
+    }
+
+    network_name_ = "Khepera_" + std::to_string(std::stoi(number));
+
     try
     {
         /* Get pointers to devices */
@@ -467,7 +480,7 @@ void BayesCPFDiffusionController::ControlStep()
         }
 
         // Send data for this timestep to the server
-        SendDataToARGoSServer();
+        // SendDataToARGoSServer();
     }
 }
 
@@ -529,9 +542,11 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
 
 void BayesCPFDiffusionController::ListenToARGoSServer()
 {
-    UInt8 *buffer = new UInt8[argos_server_params_.MsgSize]; // 64 bytes should be sufficient
-    ssize_t bytes_received;
-    CByteArray received_data;
+    RobotServerMessage data_received;
+    UInt8 *receive_buffer = new UInt8[argos_server_params_.MsgSize];
+    UInt8 *buffer_ptr = receive_buffer;
+
+    ssize_t remaining_size, bytes_received;
 
     // Format: start_bit (UInt8), ID (string), X (Real), Y (Real), Theta (Real)
     UInt8 start_bit = 0;
@@ -540,33 +555,42 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
 
     while (!shutdown_flag_.load(std::memory_order_acquire))
     {
-        // Receive message from server
-        bytes_received = ::recv(socket_, buffer, argos_server_params_.MsgSize, 0);
+        remaining_size = argos_server_params_.MsgSize;
+        buffer_ptr = receive_buffer; // reset buffer_ptr to the start of the buffer
 
-        // Check if the connection is closed (0 bytes received)
-        if (bytes_received == 0)
+        // Keep receiving until the complete data is received
+        while (remaining_size > 0)
         {
-            THROW_ARGOSEXCEPTION("Server disconnected.");
+            bytes_received = ::recv(socket_, buffer_ptr, remaining_size, 0);
+
+            if (bytes_received < 0)
+            {
+                THROW_ARGOSEXCEPTION("Error receiving data from server: " << strerror(errno));
+            }
+
+            remaining_size -= bytes_received;
+            buffer_ptr += bytes_received;
         }
 
-        // Check for errors during receiving data
-        if (bytes_received < 0)
-        {
-            THROW_ARGOSEXCEPTION("Error receiving data from server.");
-        }
+        // Reset pointer position to the start of the buffer
+        buffer_ptr = receive_buffer;
 
-        // Store the received data
-        received_data = CByteArray(buffer, bytes_received);
-        received_data >> start_bit;
-        received_data >> name;
-        received_data >> x;
-        received_data >> y;
-        received_data >> theta;
+        // Deserialize data
+        data_received.Deserialize(buffer_ptr);
+
+        data_received.Payload >> start_bit;
+        data_received.Payload >> name;
+        data_received.Payload >> x;
+        data_received.Payload >> y;
+        data_received.Payload >> theta;
 
         // Ensure the correct message has been received
-        if (name != GetId())
+        if (name != network_name_)
         {
-            THROW_ARGOSEXCEPTION("Received message was intended for " << name << ", not " << GetId());
+            std::cout << "Received message was intended for " << name << ", not " << network_name_ << std::endl;
+            std::cout << "debug " << start_bit << " " << x << " " << y << " " << theta << std::endl;
+            std::cout << std::flush;
+            continue;
         }
 
         // Set the pose data
@@ -578,16 +602,20 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
         }
 
         // Set the flag to start the robot operation
-        if (start_bit == 1)
+        if (!start_flag_.load(std::memory_order_acquire) && start_bit == 1)
         {
             start_flag_.store(true, std::memory_order_release);
         }
+
+        // Clean up
+        data_received.CleanUp();
 
         // Run thread every 10 ms
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    delete[] buffer;
+    delete[] receive_buffer;
+    delete[] buffer_ptr;
 }
 
 void BayesCPFDiffusionController::SendDataToARGoSServer()
