@@ -82,6 +82,15 @@ BayesCPFDiffusionController::BayesCPFDiffusionController() : ci_wheels_ptr_(NULL
 {
 }
 
+BayesCPFDiffusionController::~BayesCPFDiffusionController()
+{
+    // Set shutdown flag to stop listener thread
+    shutdown_flag_.store(true, std::memory_order_release);
+
+    // Close the TCP socket
+    ::close(socket_);
+}
+
 void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 {
     try
@@ -143,6 +152,7 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     // Get ARGoS server parameters
     GetNodeAttribute(GetNode(xml_node, "argos_server"), "address", argos_server_params_.Address);
     GetNodeAttribute(GetNode(xml_node, "argos_server"), "port", argos_server_params_.Port);
+    GetNodeAttribute(GetNode(xml_node, "argos_server"), "msg_size_from_server", argos_server_params_.MsgSize);
 
     // Initialize Bayes CPF
     TConfigurationNode &sensor_degradation_filter_node = GetNode(xml_node, "sensor_degradation_filter");
@@ -281,8 +291,8 @@ void BayesCPFDiffusionController::ConnectToARGoSServer()
     // Configure server address
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = ::htons(argos_server_params_.Port);
-    ::inet_pton(AF_INET, argos_server_params_.Address, &server_addr.sin_ addr); // convert string address to binary
+    server_addr.sin_port = htons(argos_server_params_.Port);
+    ::inet_pton(AF_INET, argos_server_params_.Address.c_str(), &server_addr.sin_addr); // convert string address to binary
 
     // Connect to server
     if (::connect(socket_, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
@@ -293,7 +303,7 @@ void BayesCPFDiffusionController::ConnectToARGoSServer()
     LOG << "Connected to server!" << std::endl;
 
     // Create thread to listen to server
-    std::thread listener_thread(&BayesCPFDiffusionController::ListenToServer, this);
+    std::thread listener_thread(&BayesCPFDiffusionController::ListenToARGoSServer, this);
     listener_thread.detach(); // Ensure thread completes before exiting
 }
 
@@ -327,9 +337,6 @@ void BayesCPFDiffusionController::ControlStep()
 
         // Move robot
         SetWheelSpeedsFromVector(ComputeDiffusionVector());
-
-        // Update information on self position
-        GetSelfPosition();
 
         // Collect ground measurement and compute local estimate
         if (tick_counter_ % ground_sensor_params_.GroundMeasurementPeriodTicks == 0)
@@ -418,8 +425,9 @@ void BayesCPFDiffusionController::ControlStep()
                 std::lock_guard<std::mutex> lock(self_pose_mutex_);
 
                 data << GetId();
-                data << self_pose_.GetX(); // TODO: obtained from the positioning_sensor
-                data << self_pose_.GetY(); // TODO: obtained from the positioning_sensor
+                data << self_pose_.GetX();
+                data << self_pose_.GetY();
+                data << self_pose_.GetZ();
                 data << local_est.X;
                 data << local_est.Confidence;
             }
@@ -459,7 +467,7 @@ void BayesCPFDiffusionController::ControlStep()
         }
 
         // Send data for this timestep to the server
-        SendDataToServer();
+        SendDataToARGoSServer();
     }
 }
 
@@ -472,25 +480,29 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
 
     if (messages_vec_.size() > 0)
     {
-        CVector2 neighbor_position = CVector2::ZERO;
+        CVector3 neighbor_position = CVector3::ZERO;
 
         Real distance;
 
         for (size_t i = 0; i < messages_vec_.size(); ++i)
         {
             std::string id_str;
-            Real local_est, local_conf, neighbor_x, neighbor_y;
+            Real local_est, local_conf, neighbor_x, neighbor_y, neighbor_z;
 
             messages_vec_[i].Payload >> id_str;
             messages_vec_[i].Payload >> neighbor_x;
             messages_vec_[i].Payload >> neighbor_y;
+            messages_vec_[i].Payload >> neighbor_z;
             messages_vec_[i].Payload >> local_est;
             messages_vec_[i].Payload >> local_conf;
 
-            neighbor_position.Set(neighbor_x, neighbor_y);
+            neighbor_position.Set(neighbor_x, neighbor_y, neighbor_z);
 
             // Check if distance is too far for robot to be considered a neighbor
-            distance = Distance(self_pose_, neighbor_position);
+            {
+                std::lock_guard<std::mutex> lock(self_pose_mutex_);
+                distance = Distance(self_pose_, neighbor_position);
+            }
 
             if (distance > comms_params_.SingleHopRadius)
             {
@@ -515,9 +527,9 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
     return neighbor_vals;
 }
 
-void BayesCPFDiffusionController::ListenToServer()
+void BayesCPFDiffusionController::ListenToARGoSServer()
 {
-    UInt8 *buffer = new UInt8[server_msg_size_]; // 64 bytes should be sufficient
+    UInt8 *buffer = new UInt8[argos_server_params_.MsgSize]; // 64 bytes should be sufficient
     ssize_t bytes_received;
     CByteArray received_data;
 
@@ -529,7 +541,7 @@ void BayesCPFDiffusionController::ListenToServer()
     while (!shutdown_flag_.load(std::memory_order_acquire))
     {
         // Receive message from server
-        bytes_received = ::recv(socket_, buffer, server_msg_size_, 0);
+        bytes_received = ::recv(socket_, buffer, argos_server_params_.MsgSize, 0);
 
         // Check if the connection is closed (0 bytes received)
         if (bytes_received == 0)
@@ -557,7 +569,7 @@ void BayesCPFDiffusionController::ListenToServer()
             THROW_ARGOSEXCEPTION("Received message was intended for " << name << ", not " << GetId());
         }
 
-        // Set the position data
+        // Set the pose data
         {
             std::lock_guard<std::mutex> lock(self_pose_mutex_);
             self_pose_.SetX(x);
@@ -571,37 +583,27 @@ void BayesCPFDiffusionController::ListenToServer()
             start_flag_.store(true, std::memory_order_release);
         }
 
-        // Reduce CPU usage
+        // Run thread every 10 ms
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+
+    delete[] buffer;
 }
 
-void BayesCPFDiffusionController::GetSelfPosition()
+void BayesCPFDiffusionController::SendDataToARGoSServer()
 {
-    // TODO: get position from positioning sensor
-    // self_pose_ = ci_positioning_sensor_ptr_->GetReading().Position.ProjectOntoXY();
+    CByteArray data_cbytearr;
+    std::vector<Real> data_vec = GetData();
 
-    // TODO: for now this is just set to the origin
-    self_pose_ = CVector2::ZERO;
+    data_cbytearr << data_vec.size();
+
+    for (auto itr = data_vec.begin(); itr != data_vec.end(); ++itr)
     {
-        std::lock_guard<std::mutex> lock(self_pose_mutex_);
-    }
-}
-
-void BayesCPFDiffusionController::SendDataToServer()
-{
-    CByteArray data_to_send;
-    std::vector<Real> data = GetData();
-
-    data_to_send << data.size();
-
-    for (auto itr = data.begin(); itr != data.end(); ++itr)
-    {
-        data_to_send << *itr;
+        data_cbytearr << *itr;
     }
 
     // Send the data
-    if (::send(socket_, data.ToCArray(), data.Size(), 0) < 0)
+    if (::send(socket_, data_cbytearr.ToCArray(), data_cbytearr.Size(), 0) < 0)
     {
         THROW_ARGOSEXCEPTION("Error sending data to the ARGoS server:" << ::strerror(errno));
     }

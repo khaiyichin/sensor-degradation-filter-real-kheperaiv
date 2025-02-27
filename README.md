@@ -43,6 +43,8 @@ For the docker cross-compilation to work, the following is required in the `dock
 Both can originally be found on the [K-Team](https://www.k-team.com) site, but as of 02/24/2025 the website is down. Alternatively, copies are backed up on the NEST Lab OneDrive and can be downloaded from there.
 
 
+- `self_pose_` is automatically updated with new updates thanks to the listener thread
+
 what changed:
 - std::accumulate for std::reduce (only supported in c++17)
 - CCI_RangeAndBearingSensor::TReadings replaced with std::vector<CCI_KheperaIVWiFiSensor::SMessage> in the controller

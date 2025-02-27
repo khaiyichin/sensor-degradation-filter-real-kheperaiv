@@ -10,16 +10,15 @@
 #include <argos3/core/control_interface/ci_controller.h>
 #include <argos3/plugins/robots/generic/control_interface/ci_differential_steering_actuator.h>
 #include <argos3/plugins/robots/generic/control_interface/ci_positioning_sensor.h>
-// #include <argos3/plugins/robots/generic/control_interface/ci_range_and_bearing_actuator.h>
-// #include <argos3/plugins/robots/generic/control_interface/ci_range_and_bearing_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_actuator.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_wifi_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_ground_sensor.h>
 #include <argos3/plugins/robots/kheperaiv/control_interface/ci_kheperaiv_proximity_sensor.h>
-// #include <argos3/core/utility/math/rng.h>
+#include <argos3/core/utility/math/rng.h>
 #include <argos3/core/utility/datatypes/byte_array.h>
 
 #include <mutex>
+#include <atomic>
 #include <unordered_map>
 
 #include "algorithms/CollectivePerception.hpp"
@@ -101,19 +100,13 @@ public:
     {
         std::string Address;
         SInt32 Port = 0;
+        size_t MsgSize = 0;
     };
 
 public:
     BayesCPFDiffusionController();
 
-    virtual ~BayesCPFDiffusionController()
-    {
-        // Set shutdown flag to stop listener thread
-        shutdown_flag_.store(true, std::memory_order_release);
-
-        // Close the TCP socket
-        ::close(socket_);
-    }
+    virtual ~BayesCPFDiffusionController();
 
     virtual void Init(TConfigurationNode &xml_node);
 
@@ -158,7 +151,11 @@ public:
 private:
     UInt32 ObserveTileColor();
 
-    void ListenToServer();
+    void ConnectToARGoSServer();
+
+    void ListenToARGoSServer();
+
+    void SendDataToARGoSServer();
 
     CVector2 ComputeDiffusionVector();
 
@@ -204,6 +201,9 @@ protected:
     /* Communications parameters */
     CommsParams comms_params_;
 
+    /* ARGoS server parameters */
+    ARGoSServerParams argos_server_params_;
+
     /* Collective perception algorithm */
     std::shared_ptr<CollectivePerception> collective_perception_algo_ptr_;
 
@@ -214,13 +214,18 @@ protected:
     std::vector<CCI_KheperaIVWiFiSensor::SMessage> messages_vec_;
 
     /* Position of the robot based on the positioning sensor */
-    CVector2 self_position_;
+    CVector3 self_pose_;
 
+    /* Socket for connecting to the ARGoS server */
     SInt32 socket_;
 
+    /* Mutex to protect self_pose_ */
     std::mutex self_pose_mutex_;
 
+    /* Flag to start operation */
     std::atomic<bool> start_flag_{false};
+
+    /* Flag to initiate shutdown */
     std::atomic<bool> shutdown_flag_{false};
 
     Real assumed_degradation_drift_ = 0.0;
