@@ -101,7 +101,8 @@ public:
     {
         std::string Address;
         SInt32 Port = 0;
-        size_t MsgSize = 0; // messsage size coming from the server; MUST match the config file used for the loop functions
+        size_t ServerToRobotMsgSize = 0; // messsage size coming from the server; MUST match the config file used for the loop functions
+        size_t RobotToServerMsgSize = 0; // messsage size goint to the server; MUST match the config file used for the loop functions
     };
 
 public:
@@ -244,6 +245,19 @@ protected:
     UInt64 tick_counter_ = 0;
 
     CRange<Real> standard_uniform_support_ = CRange<Real>(0.0, 1.0);
+
+    /* Variables for sending robot data vector to the ARGoS server */
+    CByteArray data_vec_byte_arr_;
+
+    std::vector<Real> data_vec_;
+
+    UInt8 *data_vec_send_buffer_;
+
+    RobotServerMessage data_vec_msg_to_send_;
+
+    ssize_t data_vec_remaining_size_;
+
+    ssize_t data_vec_bytes_sent_;
 };
 
 #endif

@@ -26,10 +26,13 @@
                     multicast_port="5000"
                     multicast_timeout="500" />
                 <kheperaiv_proximity implementation="default" show_rays="false" />
-                <kheperaiv_position argos_server_address="" port=""/>
             </sensors>
             <params>
-                <diffusion go_straight_angle_range="-5:5" delta="0.1" bounds_x="-3:3" bounds_y="-3:3"/>
+                <diffusion
+                    go_straight_angle_range="-5:5"
+                    delta="0.1"
+                    bounds_x="-3:3"
+                    bounds_y="-3:3" />
                 <ground_sensor
                     period_ticks="5"
                     sensor_acc_b="0.95"
@@ -45,7 +48,11 @@
                     soft_turn_angle_threshold="70"
                     no_turn_angle_threshold="10"
                     max_speed="10" /> <!-- speed in cm/s -->
-                <argos_server address="" port=""/>
+                <argos_server
+                    address="192.168.1.106"
+                    port="8204"
+                    robot_to_server_msg_size="96"
+                    server_to_robot_msg_size="96" /> <!-- port number is 200C in hex -->
                 <sensor_degradation_filter
                     method="DELTA"
                     period_ticks="5"

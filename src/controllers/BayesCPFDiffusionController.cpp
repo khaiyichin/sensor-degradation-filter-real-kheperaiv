@@ -78,14 +78,21 @@ BayesCPFDiffusionController::BayesCPFDiffusionController() : ci_wheels_ptr_(NULL
                                                              ci_ground_ptr_(NULL),
                                                              ci_proximity_ptr_(NULL),
                                                              sensor_degradation_filter_ptr_(NULL),
-                                                             collective_perception_algo_ptr_(std::make_shared<CollectivePerception>())
+                                                             collective_perception_algo_ptr_(std::make_shared<CollectivePerception>()),
+                                                             data_vec_send_buffer_(NULL)
 {
 }
 
 BayesCPFDiffusionController::~BayesCPFDiffusionController()
 {
+    // Stop wheels
+    ci_wheels_ptr_->SetLinearVelocity(0, 0);
+
     // Set shutdown flag to stop listener thread
     shutdown_flag_.store(true, std::memory_order_release);
+
+    // Unallocate buffer memory
+    delete[] data_vec_send_buffer_;
 
     // Close the TCP socket
     ::close(socket_);
@@ -93,7 +100,7 @@ BayesCPFDiffusionController::~BayesCPFDiffusionController()
 
 void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 {
-    // Set the network name which differs from GetId
+    // Set the network name which differs from GetId()
     std::string number;
 
     for (char ch : GetId())
@@ -165,7 +172,11 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     // Get ARGoS server parameters
     GetNodeAttribute(GetNode(xml_node, "argos_server"), "address", argos_server_params_.Address);
     GetNodeAttribute(GetNode(xml_node, "argos_server"), "port", argos_server_params_.Port);
-    GetNodeAttribute(GetNode(xml_node, "argos_server"), "msg_size_from_server", argos_server_params_.MsgSize);
+    GetNodeAttribute(GetNode(xml_node, "argos_server"), "server_to_robot_msg_size", argos_server_params_.ServerToRobotMsgSize);
+    GetNodeAttribute(GetNode(xml_node, "argos_server"), "robot_to_server_msg_size", argos_server_params_.RobotToServerMsgSize);
+
+    // Initialize the buffer for sending the robot data to the ARGoS server
+    data_vec_send_buffer_ = new UInt8[argos_server_params_.RobotToServerMsgSize];
 
     // Initialize Bayes CPF
     TConfigurationNode &sensor_degradation_filter_node = GetNode(xml_node, "sensor_degradation_filter");
@@ -317,7 +328,7 @@ void BayesCPFDiffusionController::ConnectToARGoSServer()
 
     // Create thread to listen to server
     std::thread listener_thread(&BayesCPFDiffusionController::ListenToARGoSServer, this);
-    listener_thread.detach(); // Ensure thread completes before exiting
+    listener_thread.detach();
 }
 
 void BayesCPFDiffusionController::Reset()
@@ -480,7 +491,12 @@ void BayesCPFDiffusionController::ControlStep()
         }
 
         // Send data for this timestep to the server
-        // SendDataToARGoSServer();
+        SendDataToARGoSServer();
+    }
+    else
+    {
+        LOG << "Stopping robot movement." << std::endl;
+        ci_wheels_ptr_->SetLinearVelocity(0, 0);
     }
 }
 
@@ -542,20 +558,23 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
 
 void BayesCPFDiffusionController::ListenToARGoSServer()
 {
+    // Define transmission related variables
     RobotServerMessage data_received;
-    UInt8 *receive_buffer = new UInt8[argos_server_params_.MsgSize];
+    CByteArray byte_arr;
+    UInt8 *receive_buffer = new UInt8[argos_server_params_.ServerToRobotMsgSize];
     UInt8 *buffer_ptr = receive_buffer;
-
     ssize_t remaining_size, bytes_received;
 
-    // Format: start_bit (UInt8), ID (string), X (Real), Y (Real), Theta (Real)
+    // Define data related variables
     UInt8 start_bit = 0;
     std::string name;
     Real x, y, theta;
+    // Format: start_bit (UInt8), ID (string), X (Real), Y (Real), Theta (Real)
 
     while (!shutdown_flag_.load(std::memory_order_acquire))
     {
-        remaining_size = argos_server_params_.MsgSize;
+        remaining_size = argos_server_params_.ServerToRobotMsgSize;
+
         buffer_ptr = receive_buffer; // reset buffer_ptr to the start of the buffer
 
         // Keep receiving until the complete data is received
@@ -565,7 +584,7 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
 
             if (bytes_received < 0)
             {
-                THROW_ARGOSEXCEPTION("Error receiving data from server: " << strerror(errno));
+                THROW_ARGOSEXCEPTION("Error receiving data from the ARGoS server: " << strerror(errno));
             }
 
             remaining_size -= bytes_received;
@@ -578,17 +597,18 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
         // Deserialize data
         data_received.Deserialize(buffer_ptr);
 
-        data_received.Payload >> start_bit;
-        data_received.Payload >> name;
-        data_received.Payload >> x;
-        data_received.Payload >> y;
-        data_received.Payload >> theta;
+        byte_arr = data_received.GetPayload();
+
+        byte_arr >> start_bit;
+        byte_arr >> name;
+        byte_arr >> x;
+        byte_arr >> y;
+        byte_arr >> theta;
 
         // Ensure the correct message has been received
         if (name != network_name_)
         {
             std::cout << "Received message was intended for " << name << ", not " << network_name_ << std::endl;
-            std::cout << "debug " << start_bit << " " << x << " " << y << " " << theta << std::endl;
             std::cout << std::flush;
             continue;
         }
@@ -610,31 +630,54 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
         // Clean up
         data_received.CleanUp();
 
-        // Run thread every 10 ms
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // Run thread in 20 Hz
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
     delete[] receive_buffer;
-    delete[] buffer_ptr;
 }
 
 void BayesCPFDiffusionController::SendDataToARGoSServer()
 {
-    CByteArray data_cbytearr;
-    std::vector<Real> data_vec = GetData();
+    UInt8 *buffer_ptr = data_vec_send_buffer_; // create a pointer alias for traversing through the buffer
 
-    data_cbytearr << data_vec.size();
+    // Store data into CByteArray
+    data_vec_ = GetData();
 
-    for (auto itr = data_vec.begin(); itr != data_vec.end(); ++itr)
+    data_vec_byte_arr_ << static_cast<UInt16>(data_vec_.size()); // the number of elements in the vector
+
+    for (auto itr = data_vec_.begin(); itr != data_vec_.end(); ++itr)
     {
-        data_cbytearr << *itr;
+        data_vec_byte_arr_ << (*itr);
     }
 
-    // Send the data
-    if (::send(socket_, data_cbytearr.ToCArray(), data_cbytearr.Size(), 0) < 0)
+    // Extract and serialize data
+    data_vec_msg_to_send_.PopulateMessage(data_vec_byte_arr_);
+    data_vec_msg_to_send_.Serialize(buffer_ptr);
+
+    // Ensure that the buffer is completely sent
+    data_vec_remaining_size_ = argos_server_params_.RobotToServerMsgSize;
+
+    while (data_vec_remaining_size_ > 0)
     {
-        THROW_ARGOSEXCEPTION("Error sending data to the ARGoS server:" << ::strerror(errno));
+        data_vec_bytes_sent_ = ::send(socket_, buffer_ptr, data_vec_remaining_size_, 0);
+
+        if (data_vec_bytes_sent_ < 0)
+        {
+            THROW_ARGOSEXCEPTION("Error sending data to the ARGoS server:" << ::strerror(errno));
+        }
+
+        data_vec_remaining_size_ -= data_vec_bytes_sent_;
+        buffer_ptr += data_vec_bytes_sent_;
     }
+
+    // Reset buffer pointer position
+    buffer_ptr = data_vec_send_buffer_;
+
+    // Clean up
+    data_vec_msg_to_send_.CleanUp();
+    data_vec_byte_arr_.Clear();
+    data_vec_.clear();
 }
 
 void BayesCPFDiffusionController::EvolveSensorDegradation()
@@ -683,7 +726,7 @@ UInt32 BayesCPFDiffusionController::ObserveTileColor()
     const CCI_KheperaIVGroundSensor::TReadings &ground_readings = ci_ground_ptr_->GetReadings();
 
     // Use only the right sensor (index 3) to observe
-    unsigned int encounter = static_cast<unsigned int>(std::round(ground_readings[3].Value));
+    UInt32 encounter = static_cast<UInt32>(std::round(ground_readings[3].Value));
 
     // Check if the ground sensor readings are actual or simulated
     if (!ground_sensor_params_.IsSimulated)

@@ -9,18 +9,20 @@ using namespace argos;
 
 /**
  * @brief Message struct for communication between the robot and the ARGoS server
+ * This is used both by the controller and the loop functions in sensor-degradation-filter
+ * https://github.com/khaiyichin/sensor-degradation-filter/blob/4289ea55fc6f90aa02018eea4325a8c009e8e07e/include/sensor_degradation_filter/loop_functions/RealKheperaIVExperimentLoopFunctions.hpp
  *
  */
-struct RobotServerMessage
+class RobotServerMessage
 {
-    UInt16 Size;
-    CByteArray Payload;
 
+public:
     inline void PopulateMessage(const CByteArray &arr)
     {
         Payload = arr;
 
         Size = Payload.Size();
+        Size = Payload.Size(); // CByteArray size (i.e., how many bytes)
     }
 
     inline void Serialize(UInt8 *buffer) const
@@ -46,6 +48,15 @@ struct RobotServerMessage
         Size = 0;
         Payload.Clear();
     }
+
+    inline CByteArray GetPayload() const { return Payload; }
+
+    inline UInt16 GetSize() const { return Size; }
+
+protected:
+    UInt16 Size;
+
+    CByteArray Payload;
 };
 
 #endif
