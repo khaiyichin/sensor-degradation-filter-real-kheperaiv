@@ -215,11 +215,11 @@ protected:
     /* Messages received by the WiFi sensor */
     std::vector<CCI_KheperaIVWiFiSensor::SMessage> messages_vec_;
 
-    /* Position of the robot based on the positioning sensor */
-    CVector3 self_pose_;
-
     /* Socket for connecting to the ARGoS server */
     SInt32 socket_;
+
+    /* Global position of the robot */
+    CVector3 self_pose_;
 
     /* Mutex to protect self_pose_ */
     std::mutex self_pose_mutex_;
@@ -242,7 +242,9 @@ protected:
 
     std::deque<std::pair<Real, Real>> previous_degradation_rates_and_fill_ratio_references_;
 
-    UInt64 tick_counter_ = 0;
+    UInt32 tick_counter_ = 0;
+
+    UInt16 log_counter_ = 0;
 
     CRange<Real> standard_uniform_support_ = CRange<Real>(0.0, 1.0);
 

@@ -120,7 +120,6 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
         {
             ci_wheels_ptr_ = GetActuator<CCI_DifferentialSteeringActuator>("differential_steering");
             wheel_turning_params_.Init(GetNode(xml_node, "wheel_turning"));
-            // ci_positioning_sensor_ptr_ = GetSensor<CCI_PositioningSensor>("kheperaiv_positioning_vicon");
             ci_wifi_sensor_ptr_ = GetSensor<CCI_KheperaIVWiFiSensor>("kheperaiv_wifi");
             ci_wifi_actuator_ptr_ = GetActuator<CCI_KheperaIVWiFiActuator>("kheperaiv_wifi");
             ci_ground_ptr_ = GetSensor<CCI_KheperaIVGroundSensor>("kheperaiv_ground");
@@ -150,6 +149,8 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "period_ticks", ground_sensor_params_.GroundMeasurementPeriodTicks);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "sensor_acc_b", ground_sensor_params_.ActualSensorAcc["b"]);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "sensor_acc_w", ground_sensor_params_.ActualSensorAcc["w"]);
+    GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_b", ground_sensor_params_.AssumedActualSensorAcc["b"]);
+    GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_w", ground_sensor_params_.AssumedActualSensorAcc["w"]);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "sim", ground_sensor_params_.IsSimulated);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "dynamic", ground_sensor_params_.IsDynamic);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "true_deg_drift_coeff", ground_sensor_params_.DegradationCoefficients["drift"]);
@@ -224,25 +225,8 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     SensorDegradationFilter::Params &sensor_degradation_filter_params = *sensor_degradation_filter_ptr_->GetParamsPtr();
 
-    // Set the assumed accuracies to be the same for now; they will be updated by the loop functions if needed
-    /*
-        In the simulated case, the proper assumed accuracy for the robot is set by the loop functions;
-        here we just initialized it to be the same as the actual accuracy but expect it to be changed before
-        the experiment starts.
-
-        In the non-simulated case, i.e., tracked ground sensor, the actual accuracy ground truth is not known and not
-        required anyway, so the values obtained from the XML file for `sensor_acc_*` is used to parametrize our
-        assumed accuracies. This works out because we don't simulate the tile color measurements in physical
-        experiments but instead use the actual readings from the ground sensor. In other words, the values from
-        `sensor_acc_*` from the XML file is our 'flawed' assumption of what the actual accuracy is.
-
-        NOTE: in the non-simulated case, there should be no flawed robots, so the `num` attribute in the `flawed_robots`
-        node (within the `sensor_degradation` loop functions node) should be 0. Consequently, the `acc_b` and `acc_w`
-        attributes do not apply (though you should set it to be equal to the `sensor_acc_*` values in the controller
-        node to facilitate data processing).
-    */
-    sensor_degradation_filter_params.AssumedSensorAcc["b"] = ground_sensor_params_.ActualSensorAcc["b"];
-    sensor_degradation_filter_params.AssumedSensorAcc["w"] = ground_sensor_params_.ActualSensorAcc["w"];
+    sensor_degradation_filter_params.AssumedSensorAcc["b"] = ground_sensor_params_.AssumedActualSensorAcc["b"];
+    sensor_degradation_filter_params.AssumedSensorAcc["w"] = ground_sensor_params_.AssumedActualSensorAcc["w"];
     sensor_degradation_filter_params.RunDegradationFilter = false; // will be activated from the loop functions if required
 
     GetNodeAttribute(sensor_degradation_filter_node, "period_ticks", sensor_degradation_filter_params.FilterActivationPeriodTicks);
@@ -301,6 +285,9 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     // Connect to the ARGoS server
     ConnectToARGoSServer();
+
+    // Send data at timestep 0
+    SendDataToARGoSServer();
 }
 
 void BayesCPFDiffusionController::ConnectToARGoSServer()
@@ -324,7 +311,7 @@ void BayesCPFDiffusionController::ConnectToARGoSServer()
         THROW_ARGOSEXCEPTION("Error connecting to socket server: " << strerror(errno));
     }
 
-    LOG << "Connected to server!" << std::endl;
+    LOG << "[INFO] Connected to ARGoS server." << std::endl;
 
     // Create thread to listen to server
     std::thread listener_thread(&BayesCPFDiffusionController::ListenToARGoSServer, this);
@@ -338,7 +325,7 @@ void BayesCPFDiffusionController::Reset()
 
 std::vector<Real> BayesCPFDiffusionController::GetData() const
 {
-    return {static_cast<Real>(RNG_ptr_->GetSeed()),
+    return {static_cast<Real>(tick_counter_), // sending the current time step
             static_cast<Real>(collective_perception_algo_ptr_->GetParamsPtr()->NumBlackTilesSeen),
             static_cast<Real>(collective_perception_algo_ptr_->GetParamsPtr()->NumObservations),
             collective_perception_algo_ptr_->GetLocalVals().X,
@@ -355,6 +342,7 @@ std::vector<Real> BayesCPFDiffusionController::GetData() const
 
 void BayesCPFDiffusionController::ControlStep()
 {
+    // Execute the loop
     if (start_flag_.load(std::memory_order_acquire))
     {
         ++tick_counter_;
@@ -495,8 +483,13 @@ void BayesCPFDiffusionController::ControlStep()
     }
     else
     {
-        LOG << "Stopping robot movement." << std::endl;
         ci_wheels_ptr_->SetLinearVelocity(0, 0);
+
+        if (++log_counter_ % 10 == 0)
+        {
+            LOG << "[INFO] Wheel velocity set to zero." << std::endl;
+            LOG.Flush();
+        }
     }
 }
 
@@ -574,7 +567,6 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
     while (!shutdown_flag_.load(std::memory_order_acquire))
     {
         remaining_size = argos_server_params_.ServerToRobotMsgSize;
-
         buffer_ptr = receive_buffer; // reset buffer_ptr to the start of the buffer
 
         // Keep receiving until the complete data is received
@@ -624,7 +616,11 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
         // Set the flag to start the robot operation
         if (!start_flag_.load(std::memory_order_acquire) && start_bit == 1)
         {
-            start_flag_.store(true, std::memory_order_release);
+            start_flag_.store(true, std::memory_order_release); // start operation
+        }
+        else if (start_flag_.load(std::memory_order_acquire) && start_bit == 0)
+        {
+            start_flag_.store(false, std::memory_order_release); // stop operation
         }
 
         // Clean up
@@ -731,7 +727,7 @@ UInt32 BayesCPFDiffusionController::ObserveTileColor()
     // Check if the ground sensor readings are actual or simulated
     if (!ground_sensor_params_.IsSimulated)
     {
-        return static_cast<UInt32>(encounter);
+        return encounter;
     }
     else
     {
@@ -754,11 +750,11 @@ UInt32 BayesCPFDiffusionController::ObserveTileColor()
         // Apply noise to observation
         if (RNG_ptr_->Uniform(standard_uniform_support_) < prob) // correct observation
         {
-            return static_cast<UInt32>(encounter);
+            return encounter;
         }
         else // incorrect observation
         {
-            return static_cast<UInt32>(1 - encounter);
+            return 1 - encounter;
         }
     }
 }

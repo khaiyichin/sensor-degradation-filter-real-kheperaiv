@@ -53,3 +53,5 @@ what changed:
 - create a new CRandom::CRNG category (because the simulator doesn't create it for us this time)
 - add bounds to prevent robots from falling off
 - add connection to argos server to get pose information and send recorded data
+- add assumed sensor accuracy to controller (since we're simulating degradation anyway)
+- storing current time step instead of rng seed
