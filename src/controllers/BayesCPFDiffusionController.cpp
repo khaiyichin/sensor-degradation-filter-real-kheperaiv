@@ -149,8 +149,6 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "period_ticks", ground_sensor_params_.GroundMeasurementPeriodTicks);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "sensor_acc_b", ground_sensor_params_.ActualSensorAcc["b"]);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "sensor_acc_w", ground_sensor_params_.ActualSensorAcc["w"]);
-    GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_b", ground_sensor_params_.AssumedActualSensorAcc["b"]);
-    GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_w", ground_sensor_params_.AssumedActualSensorAcc["w"]);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "sim", ground_sensor_params_.IsSimulated);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "dynamic", ground_sensor_params_.IsDynamic);
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "true_deg_drift_coeff", ground_sensor_params_.DegradationCoefficients["drift"]);
@@ -225,8 +223,8 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     SensorDegradationFilter::Params &sensor_degradation_filter_params = *sensor_degradation_filter_ptr_->GetParamsPtr();
 
-    sensor_degradation_filter_params.AssumedSensorAcc["b"] = ground_sensor_params_.AssumedActualSensorAcc["b"];
-    sensor_degradation_filter_params.AssumedSensorAcc["w"] = ground_sensor_params_.AssumedActualSensorAcc["w"];
+    GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_b", sensor_degradation_filter_params.AssumedSensorAcc.at("b"));
+    GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_w", sensor_degradation_filter_params.AssumedSensorAcc.at("w"));
     sensor_degradation_filter_params.RunDegradationFilter = false; // will be activated from the loop functions if required
 
     GetNodeAttribute(sensor_degradation_filter_node, "period_ticks", sensor_degradation_filter_params.FilterActivationPeriodTicks);
@@ -502,28 +500,34 @@ std::vector<CollectivePerception::EstConfPair> BayesCPFDiffusionController::GetN
 
     if (messages_vec_.size() > 0)
     {
-        CVector3 neighbor_position = CVector3::ZERO;
+        CVector2 neighbor_position = CVector2::ZERO;
 
         Real distance;
 
         for (size_t i = 0; i < messages_vec_.size(); ++i)
         {
             std::string id_str;
-            Real local_est, local_conf, neighbor_x, neighbor_y, neighbor_z;
+            Real local_est, local_conf, neighbor_x, neighbor_y, neighbor_orientation;
 
             messages_vec_[i].Payload >> id_str;
             messages_vec_[i].Payload >> neighbor_x;
             messages_vec_[i].Payload >> neighbor_y;
-            messages_vec_[i].Payload >> neighbor_z;
+            messages_vec_[i].Payload >> neighbor_orientation;
             messages_vec_[i].Payload >> local_est;
             messages_vec_[i].Payload >> local_conf;
 
-            neighbor_position.Set(neighbor_x, neighbor_y, neighbor_z);
+            // Ignore its own message
+            if (id_str == GetId())
+            {
+                continue;
+            }
+
+            neighbor_position.Set(neighbor_x, neighbor_y);
 
             // Check if distance is too far for robot to be considered a neighbor
             {
                 std::lock_guard<std::mutex> lock(self_pose_mutex_);
-                distance = Distance(self_pose_, neighbor_position);
+                distance = Distance(CVector2{self_pose_.GetX(), self_pose_.GetY()}, neighbor_position);
             }
 
             if (distance > comms_params_.SingleHopRadius)
