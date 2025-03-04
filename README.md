@@ -32,8 +32,22 @@ Things that aren't simulated:
 
 4. On the robot, run the installation script:
     ```
-    ./opt/sensor_degradation_filter_real_kheperaiv/install.sh
+    $ ./opt/sensor_degradation_filter_real_kheperaiv/install.sh
     ```
+
+5. Copy the controller configuration file to any desired directory (where you will be executing the controller from):
+    ```
+    $ mkdir BayesCPF/
+    $ cp /opt/sensor_degradation_filter_real_kheperaiv/controller_config.argos /home/root/BayesCPF
+    ```
+    Here our example work directory is `BayesCPF`.
+
+6. Execute the controller (will require that an active ARGoS server):
+    ```
+    $ cd BayesCPF/
+    $ bayes_cpf_diffusion_controller -c controller_config.argos -i bcdc
+    ```
+    `bcdc` is the ID given to the controller in the `controller_config.argos` file and is arbitrary.
 
 ## Dev notes
 For the docker cross-compilation to work, the following is required in the `docker` directory:
