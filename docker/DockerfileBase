@@ -31,7 +31,7 @@
 #
 
 FROM ubuntu:16.04
-ENV LAST_MODIFIED="2025-02-23:16.36"
+ENV LAST_MODIFIED="2025-03-04:15.04"
 
 # Set the working directory
 WORKDIR /work
@@ -67,10 +67,9 @@ RUN tar xjf libkhepera-*.tar.bz2 && \
     cp -a build*/* $ARGOS3KHIV
 
 # Get ARGoS and plugin
-# TODO: use main branches (ensure that updates are merged into main)
 RUN git clone https://github.com/ilpincy/argos3
 RUN git clone https://github.com/NESTLab/Buzz.git buzz
-RUN git clone -b bugfix/proximity_ground_ir_sensor_conversion_factor https://github.com/nestlab/argos3-kheperaiv
+RUN git clone https://github.com/nestlab/argos3-kheperaiv
 
 # Make sure the toolchain configuration is in the environment
 SHELL ["/bin/bash", "-c"]

@@ -52,7 +52,7 @@
                     no_turn_angle_threshold="10"
                     max_speed="10" /> <!-- speed in cm/s -->
                 <argos_server
-                    address="192.168.1.106"
+                    address="192.168.1.120"
                     port="8204"
                     robot_to_server_msg_size="256"
                     server_to_robot_msg_size="96" /> <!-- port number is 200C in hex -->

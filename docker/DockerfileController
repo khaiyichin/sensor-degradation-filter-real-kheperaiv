@@ -1,17 +1,13 @@
-# THIS HAS TO BE RUN IN THE PROJECT'S ROOT FOLDER FOR THE DOCKER BUILD CONTEXT TO INCLUDE SRC/
+# This docker file is expected to be run as part of `image_build_script`.
 
 FROM nestlab/kheperaiv
-ENV LAST_MODIFIED="2025-02-24:16.14"
+ENV LAST_MODIFIED="2025-03-04:14.54"
 
 # Set the working directory
 WORKDIR /work
 
 # Compile the BayesCPFDiffusion controller
-
-##### TEMPORARY; TODO: WILL USE GIT CLONE IN FINAL IMPLEMENTATION #####
-COPY src ./sensor-degradation-filter-real-kheperaiv/src
-COPY scripts/setup.sh ./sensor-degradation-filter-real-kheperaiv/scripts/
-COPY scripts/install.sh ./sensor-degradation-filter-real-kheperaiv/scripts/
+RUN git clone https://github.com/khaiyichin/sensor-degradation-filter-real-kheperaiv
 
 RUN cd sensor-degradation-filter-real-kheperaiv && \
     mkdir build_kheperaiv && \
@@ -28,4 +24,4 @@ RUN cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/
     cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/sensor_degradation_filter_real_kheperaiv ${DEPLOYMENT_DIR}/lib && \
     cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/libbuzz.so ${DEPLOYMENT_DIR}/lib && \
     cp /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/bin/bayes_cpf_diffusion_controller ${DEPLOYMENT_DIR}/bin && \
-    cp /work/sensor-degradation-filter-real-kheperaiv/scripts/setup.sh /work/sensor-degradation-filter-real-kheperaiv/scripts/install.sh ${DEPLOYMENT_DIR}/
+    cp /work/sensor-degradation-filter-real-kheperaiv/scripts/setup.sh /work/sensor-degradation-filter-real-kheperaiv/scripts/install.sh /work/sensor-degradation-filter-real-kheperaiv/config/controller_config.argos ${DEPLOYMENT_DIR}/
