@@ -32,20 +32,20 @@
                     go_straight_angle_range="-5:5"
                     delta="0.1"
                     proximity_noise_ground="0.2"
-                    bounds_x="-3:3"
-                    bounds_y="-3:3" />
+                    bounds_x="-1.55:1.55"
+                    bounds_y="-1.55:1.55" />
                 <ground_sensor
                     period_ticks="5"
-                    sensor_acc_b="0.95"
-                    sensor_acc_w="0.95"
-                    assumed_sensor_acc_b="0.95"
-                    assumed_sensor_acc_w="0.95"
+                    sensor_acc_b="0.999"
+                    sensor_acc_w="0.999"
+                    assumed_sensor_acc_b="0.999"
+                    assumed_sensor_acc_w="0.999"
                     sim="true"
                     dynamic="true"
-                    true_deg_drift_coeff="0.0"
-                    true_deg_diffusion_coeff="-1.0"
+                    true_deg_drift_coeff="-3e-5"
+                    true_deg_diffusion_coeff="1e-4"
                     lowest_degraded_acc_lvl="0.5" />
-                <comms period_ticks="10" single_hop_radius="0.7" />
+                <comms period_ticks="5" single_hop_radius="0.7" />
                 <wheel_turning
                     hard_turn_angle_threshold="90"
                     soft_turn_angle_threshold="70"
@@ -63,10 +63,11 @@
                     dynamic_observation_queue="true"
                     use_weighted_avg_informed_est="true"
                     dynamic_observation_queue_window_size="500">
+                    <!-- init_mean must match assumed_sensor_acc* of <ground_sensor> -->
                     <params
-                        pred_deg_model_B="-5e-5"
-                        pred_deg_var_R="1e-4"
-                        init_mean="0.99"
+                        pred_deg_model_B="-1.5e-5"
+                        pred_deg_var_R="1e-8"
+                        init_mean="0.999"
                         init_var="0.001"
                         lowest_assumed_acc_lvl="0.5"
                         variant="bin" /> <!-- DELTA filter specific parameters -->

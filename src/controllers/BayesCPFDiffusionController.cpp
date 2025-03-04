@@ -60,8 +60,6 @@ void BayesCPFDiffusionController::DiffusionParams::Init(TConfigurationNode &xml_
         GetNodeAttribute(xml_node, "proximity_noise_ground", ProximityNoiseGround);
         GetNodeAttribute(xml_node, "bounds_x", BoundsX);
         GetNodeAttribute(xml_node, "bounds_y", BoundsY);
-        // DEBUG
-        LOG << "bounds not implemented yet!!" << std::endl;
     }
     catch (CARGoSException &ex)
     {
@@ -344,6 +342,13 @@ void BayesCPFDiffusionController::ControlStep()
     // Execute the loop
     if (start_flag_.load(std::memory_order_acquire))
     {
+        // Check to ensure that the robot is not out of bounds
+        if (!diffusion_params_.BoundsX.WithinMinBoundIncludedMaxBoundIncluded(self_pose_.GetX()) ||
+            !diffusion_params_.BoundsY.WithinMinBoundIncludedMaxBoundIncluded(self_pose_.GetY()))
+        {
+            THROW_ARGOSEXCEPTION("Robot " << GetId() << " with coordinates " << self_pose_ << " is out of bounds: x=" << diffusion_params_.BoundsX << " and y=" << diffusion_params_.BoundsY);
+        }
+
         ++tick_counter_;
 
         // Move robot
@@ -605,8 +610,8 @@ void BayesCPFDiffusionController::ListenToARGoSServer()
         // Ensure the correct message has been received
         if (name != network_name_)
         {
-            std::cout << "Received message was intended for " << name << ", not " << network_name_ << std::endl;
-            std::cout << std::flush;
+            LOG << "Received message was intended for " << name << ", not " << network_name_ << std::endl;
+            LOG.Flush();
             continue;
         }
 
