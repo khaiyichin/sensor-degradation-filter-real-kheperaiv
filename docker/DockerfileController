@@ -24,4 +24,4 @@ RUN cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/
     cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/sensor_degradation_filter_real_kheperaiv ${DEPLOYMENT_DIR}/lib && \
     cp -r /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/lib/libbuzz.so ${DEPLOYMENT_DIR}/lib && \
     cp /opt/poky/1.8/sysroots/cortexa8hf-vfp-neon-poky-linux-gnueabi/usr/bin/bayes_cpf_diffusion_controller ${DEPLOYMENT_DIR}/bin && \
-    cp /work/sensor-degradation-filter-real-kheperaiv/scripts/setup.sh /work/sensor-degradation-filter-real-kheperaiv/scripts/install.sh /work/sensor-degradation-filter-real-kheperaiv/config/controller_config.argos ${DEPLOYMENT_DIR}/
+    cp /work/sensor-degradation-filter-real-kheperaiv/scripts/setup.sh /work/sensor-degradation-filter-real-kheperaiv/scripts/install.sh /work/sensor-degradation-filter-real-kheperaiv/argos/controller_config.argos ${DEPLOYMENT_DIR}/
