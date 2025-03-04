@@ -31,6 +31,7 @@
                 <diffusion
                     go_straight_angle_range="-5:5"
                     delta="0.1"
+                    proximity_noise_ground="0.2"
                     bounds_x="-3:3"
                     bounds_y="-3:3" />
                 <ground_sensor
@@ -53,7 +54,7 @@
                 <argos_server
                     address="192.168.1.106"
                     port="8204"
-                    robot_to_server_msg_size="96"
+                    robot_to_server_msg_size="256"
                     server_to_robot_msg_size="96" /> <!-- port number is 200C in hex -->
                 <sensor_degradation_filter
                     method="DELTA"

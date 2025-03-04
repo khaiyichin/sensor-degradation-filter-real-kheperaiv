@@ -57,6 +57,7 @@ void BayesCPFDiffusionController::DiffusionParams::Init(TConfigurationNode &xml_
         GoStraightAngleRange.Set(ToRadians(cGoStraightAngleRangeDegrees.GetMin()),
                                  ToRadians(cGoStraightAngleRangeDegrees.GetMax()));
         GetNodeAttribute(xml_node, "delta", Delta);
+        GetNodeAttribute(xml_node, "proximity_noise_ground", ProximityNoiseGround);
         GetNodeAttribute(xml_node, "bounds_x", BoundsX);
         GetNodeAttribute(xml_node, "bounds_y", BoundsY);
         // DEBUG
@@ -775,6 +776,13 @@ CVector2 BayesCPFDiffusionController::ComputeDiffusionVector()
     {
         diffusion_vector += CVector2(proximity_readings[i].Value, proximity_readings[i].Angle);
     }
+
+    // Go straight if the diffusion vector doesn't pass the noise threshold or if the direction of most significant obstacle is exactly behind (within a range of roughtly -165 to 165 degrees)
+    if ((diffusion_vector.Length() < diffusion_params_.ProximityNoiseGround) || (diffusion_vector.Angle().GetAbsoluteValue() > M_PI - 0.25))
+    {
+        return CVector2::X * wheel_turning_params_.MaxSpeed;
+    }
+
     /* If the angle of the vector is small enough and the closest obstacle
        is far enough, ignore the vector and go straight, otherwise return
        it */

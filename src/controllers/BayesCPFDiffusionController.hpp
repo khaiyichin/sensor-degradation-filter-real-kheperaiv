@@ -68,6 +68,8 @@ public:
         Real Delta;
         /* Angle tolerance range to go straight. */
         CRange<CRadians> GoStraightAngleRange;
+        /* Threshold to filter proximity sensor noise; ranges from 0.0 to 1.0 */
+        Real ProximityNoiseGround;
         /* Movement bounds in x-direction */
         CRange<Real> BoundsX;
         /* Movement bounds in y-direction */
