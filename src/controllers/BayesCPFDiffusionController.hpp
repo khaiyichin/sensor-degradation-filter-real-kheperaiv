@@ -25,6 +25,8 @@
 #include "algorithms/SensorDegradationFilter.hpp"
 #include "messages/RobotServerMessage.hpp"
 
+#define ONCOMING_PROXIMITY_SENSITIVITY_FACTOR 1.5 // scaling factor for the forward-facing proximity values
+
 using namespace argos;
 
 class BayesCPFDiffusionController : public CCI_Controller
@@ -69,7 +71,7 @@ public:
         /* Angle tolerance range to go straight. */
         CRange<CRadians> GoStraightAngleRange;
         /* Threshold to filter proximity sensor noise; ranges from 0.0 to 1.0 */
-        Real ProximityNoiseGround;
+        Real ProximityNoiseThreshold;
         /* Movement bounds in x-direction */
         CRange<Real> BoundsX;
         /* Movement bounds in y-direction */

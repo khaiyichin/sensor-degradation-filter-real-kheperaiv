@@ -57,7 +57,7 @@ void BayesCPFDiffusionController::DiffusionParams::Init(TConfigurationNode &xml_
         GoStraightAngleRange.Set(ToRadians(cGoStraightAngleRangeDegrees.GetMin()),
                                  ToRadians(cGoStraightAngleRangeDegrees.GetMax()));
         GetNodeAttribute(xml_node, "delta", Delta);
-        GetNodeAttribute(xml_node, "proximity_noise_ground", ProximityNoiseGround);
+        GetNodeAttribute(xml_node, "proximity_noise_threshold", ProximityNoiseThreshold);
         GetNodeAttribute(xml_node, "bounds_x", BoundsX);
         GetNodeAttribute(xml_node, "bounds_y", BoundsY);
     }
@@ -222,9 +222,11 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     SensorDegradationFilter::Params &sensor_degradation_filter_params = *sensor_degradation_filter_ptr_->GetParamsPtr();
 
+    // Set whether to activate the filter (this is a feature only in real robot experiments, because in simulated experiments the loop function handles this)
+    GetNodeAttribute(sensor_degradation_filter_node, "activate_filter", sensor_degradation_filter_params.RunDegradationFilter);
+
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_b", sensor_degradation_filter_params.AssumedSensorAcc.at("b"));
     GetNodeAttribute(GetNode(xml_node, "ground_sensor"), "assumed_sensor_acc_w", sensor_degradation_filter_params.AssumedSensorAcc.at("w"));
-    sensor_degradation_filter_params.RunDegradationFilter = false; // will be activated from the loop functions if required
 
     GetNodeAttribute(sensor_degradation_filter_node, "period_ticks", sensor_degradation_filter_params.FilterActivationPeriodTicks);
 
@@ -779,11 +781,20 @@ CVector2 BayesCPFDiffusionController::ComputeDiffusionVector()
 
     for (size_t i = 0; i < proximity_readings.size(); ++i)
     {
-        diffusion_vector += CVector2(proximity_readings[i].Value, proximity_readings[i].Angle);
+        // Amplify oncoming obstacle values (to make avoidance more robust especially when considering oncoming robots)
+        // Without these the robot detect static obstacles well, but not dynamic ones (that are heading towaards it)
+        if ((i == 0) || (i == 1) || i == 7) // 0 degrees, 45 degrees, -45 degrees
+        {
+            diffusion_vector += CVector2(proximity_readings[i].Value * ONCOMING_PROXIMITY_SENSITIVITY_FACTOR, proximity_readings[i].Angle);
+        }
+        else
+        {
+            diffusion_vector += CVector2(proximity_readings[i].Value, proximity_readings[i].Angle);
+        }
     }
 
     // Go straight if the diffusion vector doesn't pass the noise threshold or if the direction of most significant obstacle is exactly behind (within a range of roughtly -165 to 165 degrees)
-    if ((diffusion_vector.Length() < diffusion_params_.ProximityNoiseGround) || (diffusion_vector.Angle().GetAbsoluteValue() > M_PI - 0.25))
+    if ((diffusion_vector.Length() < diffusion_params_.ProximityNoiseThreshold) || (diffusion_vector.Angle().GetAbsoluteValue() > M_PI - 0.25))
     {
         return CVector2::X * wheel_turning_params_.MaxSpeed;
     }

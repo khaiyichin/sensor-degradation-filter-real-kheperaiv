@@ -31,7 +31,7 @@
                 <diffusion
                     go_straight_angle_range="-5:5"
                     delta="0.1"
-                    proximity_noise_ground="0.2"
+                    proximity_noise_threshold="0.2"
                     bounds_x="-1.55:1.55"
                     bounds_y="-1.55:1.55" />
                 <ground_sensor
@@ -57,6 +57,7 @@
                     robot_to_server_msg_size="256"
                     server_to_robot_msg_size="96" /> <!-- port number is 200C in hex -->
                 <sensor_degradation_filter
+                    activate_filter="true"
                     method="DELTA"
                     period_ticks="5"
                     observation_queue_size="1000"

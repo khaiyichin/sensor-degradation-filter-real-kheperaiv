@@ -27,4 +27,4 @@ echo -e "\n#################### Cross-compilation complete ####################\
 echo -e "1. Copy 'deployment_files.tar.gz' to the robot: 'scp deployment_files.tar.gz root@KheperaXX:/home/root'"
 echo -e "2. SSH onto the robot and extract the archive to the '/opt/sensor_degradation_filter_real_kheperaiv/' directory: 'tar -xf deployment_files.tar.gz -C /opt/sensor_degradation_filter_real_kheperaiv/'"
 echo -e "3. Run the installation script (while still logged into the robot): '/opt/sensor_degradation_filter_real_kheperaiv/install.sh'"
-echo -e "4. Copy the 'controller_config.argos' file into a work directory that you run the controller in: 'cp /opt/sensor_degradation_filter_real_kheperaiv/controller_config.argos /home/root'
+echo -e "4. Copy the 'controller_config.argos' file into a work directory that you run the controller in: 'cp /opt/sensor_degradation_filter_real_kheperaiv/controller_config.argos /home/root'"
