@@ -276,7 +276,8 @@ void BayesCPFDiffusionController::Init(TConfigurationNode &xml_node)
 
     /* Create a random number generator. We use the 'argos' category so
        that creation, reset, seeding and cleanup are managed by ARGoS. */
-    CRandom::CreateCategory("argos", 0); // need to create the category first for non-simulator controllers
+    CRandom::CreateCategory("argos", std::stoi(number)); // need to create the category first for non-simulator controllers
+                                                         // seeding with the Khepera's numeric ID so that the sensor degradation values are not all the same
     RNG_ptr_ = CRandom::CreateRNG("argos");
 
     // Initialize the filter algorithms
