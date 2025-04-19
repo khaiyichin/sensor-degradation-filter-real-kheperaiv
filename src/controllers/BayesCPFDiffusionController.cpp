@@ -415,7 +415,7 @@ void BayesCPFDiffusionController::ControlStep()
                         else
                         {
                             dynamic_queue_size = static_cast<int>(std::ceil(0.02 /
-                                                                            std::abs(sensor_degradation_filter_ptr_->GetParamsPtr()->FilterActivationPeriodTicks *
+                                                                            std::abs(ground_sensor_params_.GroundMeasurementPeriodTicks *
                                                                                      (2.0 * averaged_deg_rates_and_fill_ratio_refs_.second - 1.0) *
                                                                                      averaged_deg_rates_and_fill_ratio_refs_.first)));
                         }
